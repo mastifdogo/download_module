@@ -1,0 +1,79 @@
+# Downloads: a Ledger module
+
+A module for [Ledger (Bookeeping)](https://github.com/mastifdogo/Bookeeping). It gives Ledger an
+**inbox for files sent from your browser**, and includes the **Send to Ledger** browser extension
+(Chrome and Firefox) that sends them.
+
+- **Send from any website:** right-click a download link (a bank statement, a supplier's invoice)
+  and choose *Send to Ledger…*, or drop a file on the extension's toolbar button. It goes straight
+  to Ledger, without being saved to your computer, using the website's login for the download and
+  your Ledger login for the upload.
+- **Sort it in Ledger:** on the **Downloads** page each file can be
+  - sent on to the [Auto sort](https://github.com/mastifdogo/auto-sort_module) module, as a
+    statement whose transactions you review and post, or as a bill or receipt;
+  - saved to Ledger's CSV files for journal import;
+  - downloaded, archived or deleted.
+
+  The extension can also send statements and bills straight to Auto sort.
+- **Ledger extras:** a dashboard notification while files are waiting; files show up in Ledger's
+  search bar; files that arrived before are flagged.
+
+## Install
+
+Needs **Ledger 0.10.0 or newer**.
+
+1. In Ledger, open **Settings → Modules**, enter `mastifdogo/download_module` and press **Add**.
+   **Downloads** appears in the sidebar.
+2. On the Downloads page, press **Get the browser extension**, download the zip, and install it.
+   Chrome: *Load unpacked*. Firefox: a temporary add-on, or one signed for yourself. Details are in
+   [ui/extension/README.md](ui/extension/README.md).
+3. In the extension's options, enter your Ledger address, **Save**, allow access, and **Test**.
+
+**Options** (Settings → Downloads):
+- **Largest file accepted:** 25 MB by default, at most 100.
+- **Delete sent and archived files after:** a number of days, or 0 to keep them. Files waiting in
+  the inbox are never deleted automatically.
+
+Auto sort is optional: without it, the inbox still works, and so do downloading and Ledger's CSV
+files.
+
+## How files get here
+
+The extension uploads from a Ledger tab with your login (Ledger only accepts its own pages), in
+chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
+
+| Method | Path (under `/api/v1/m/downloads`) | |
+|---|---|---|
+| `POST` | `/files` | `{name, content_type, size, source_url?}` → `{id, chunk_size, chunks}` |
+| `PUT` | `/files/:id/chunks/:index` | `{data: base64}`; each chunk exactly `chunk_size` bytes (the last one, the rest) |
+| `POST` | `/files/:id/complete` | checks every chunk arrived, records the SHA-256 → the file (and `duplicate_of` if it arrived before) |
+| `GET` | `/files?status=new\|sent\|archived\|all` | the inbox, with counts |
+| `GET` | `/files/:id`, `/files/:id/content` | one file; its bytes (base64) |
+| `POST` | `/files/:id/sent` | `{to, link?}`: record where the page forwarded it |
+| `PATCH`/`DELETE` | `/files/:id` | `{status: "new"\|"archived", note?, name?}`; delete |
+
+Uploads that never complete are removed after a day.
+
+## Privacy
+
+Files are stored in Ledger's database (and its backups) until you delete them, or until the days
+set under Settings → Downloads have passed. The extension sends nothing anywhere but your Ledger.
+
+## Layout
+
+```
+ledger-module.json     manifest (settings, drawn download icon)
+server.mjs             upload in chunks, the inbox, clean-up, dashboard, search
+migrations/            files and file_chunks (schema mod_downloads)
+ui/index.html          the Downloads page: inbox, forwarding, the extension download
+ui/extension/          the Send to Ledger browser extension (Manifest V3, Chrome and Firefox)
+```
+
+## Development and release
+
+Use the `ledger-module` skill in `.claude/skills/`. To check the module against a real Ledger:
+`sh .claude/skills/ledger-module/scripts/check.sh` with `TEST_DATABASE_URL` set. To lint the
+extension for Firefox: `npx web-ext lint --source-dir ui/extension`.
+
+To release: bump `version` in `ledger-module.json` (and the extension's `manifest.json` if it
+changed), tag `v<version>`, and create a GitHub Release from the tag.
