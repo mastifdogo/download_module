@@ -172,10 +172,15 @@ Use the `ledger-module` skill in `.claude/skills/`. `npm test` runs the module's
 extension for Firefox: `npx web-ext lint --source-dir ui/extension`.
 
 To release: bump `version` in `ledger-module.json` (and the extension's `manifest.json` if it
-changed), tag `v<version>`, and create a GitHub Release from the tag.
+changed) and push to `main`. The *Release* workflow (`.github/workflows/release.yml`) then tags
+`v<version>` and creates the GitHub Release that Ledger installs. If it fails with "Resource not
+accessible by integration", allow it under Settings → Actions → General → Workflow permissions
+("Read and write permissions") and run it again from the Actions tab.
 
 ## Changes
 
+- **0.4.1:** Releases are made by a GitHub workflow when a new version reaches `main`. (Includes
+  0.4.0, which was never released on its own.)
 - **0.4.0:** Renamed **Import**. Email: imports documents from bill emails (Gmail or IMAP; the
   Auto sort module's check). **Scan** tab on computers and phones: scan on an AirScan network
   scanner (found on the network by an admin), photograph with a phone's camera, or upload files.

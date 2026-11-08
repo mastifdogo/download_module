@@ -87,9 +87,14 @@ leave pushing it to them. The module must work without that change.
    new features raise the middle number and reset the last (`1.4.2` →
    `1.5.0`); tweaks and bug fixes only raise the last (`1.4.2` → `1.4.3`); a
    release with both is a feature release.
-2. Commit, tag `v<version>`, push the tag, and create a GitHub Release from
-   it (not a draft or pre-release). If tags or releases can't be created from
-   this session, tell the user which commit to release in GitHub's web UI.
+2. Commit and push `main`. **Don't create tags or Releases by hand**:
+   `.github/workflows/release.yml` (the ledger-module skill's
+   `assets/release.yml`) tags `v<version>` on that commit and creates the
+   Release when a pushed `ledger-module.json` has an unreleased version.
+   Check the run in the Actions tab. If it fails with "Resource not
+   accessible by integration", the user allows it once: Settings → Actions →
+   General → Workflow permissions → "Read and write permissions"; then
+   Actions → Release → Run workflow.
 3. Ledger installs it on its update schedule or with "Update modules now"
    (Settings → Modules).
 
