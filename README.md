@@ -8,6 +8,12 @@ A module for [Ledger (Bookeeping)](https://github.com/mastifdogo/Bookeeping). It
   and choose *Send to Ledger…*, or drop a file on the extension's toolbar button. It goes straight
   to Ledger, without being saved to your computer, using the website's login for the download and
   your Ledger login for the upload.
+- **Scan receipts with your phone:** open Downloads in Ledger on a phone or tablet and use the
+  **Scan receipt** tab. Take a photo with the camera (or choose photos); several photos become the
+  pages of one PDF, which goes into the inbox with its Send panel open: send it as a receipt to a
+  module that takes them, to Auto sort as a bill, or read it with **Extract data**. Photos are
+  shrunk (2000 px) and turned into the PDF on the phone; only the PDF is uploaded. The tab appears
+  on touch devices; on a computer, open the page with `?tab=scan` to show it.
 - **Sort it in Ledger:** on the **Downloads** page each file can be
   - sent on to the [Auto sort](https://github.com/mastifdogo/auto-sort_module) module, as a
     statement whose transactions you review and post, or as a bill or receipt;
@@ -91,7 +97,7 @@ set under Settings → Downloads have passed. The extension sends nothing anywhe
 ledger-module.json     manifest (settings, drawn download icon)
 server.mjs             upload in chunks, the inbox, AI extraction to CSV, clean-up, dashboard, search
 migrations/            files and file_chunks (schema mod_downloads); 002 links module hand-offs
-ui/index.html          the Downloads page: inbox, forwarding, the extension download
+ui/index.html          the Downloads page: inbox, forwarding, AI review, Scan receipt (phones), the extension download
 ui/extension/          the Send to Ledger browser extension (Manifest V3, Chrome and Firefox)
 ```
 
@@ -106,6 +112,8 @@ changed), tag `v<version>`, and create a GitHub Release from the tag.
 
 ## Changes
 
+- **0.2.0:** A *Scan receipt* tab on phones and tablets: photograph receipts or bills with the
+  camera; the photos become one PDF in the inbox.
 - **0.1.0:** What the AI extracts is a suggestion you check first: review, correct and approve the
   rows (or reject them) before the CSV is created and the original moves to Sent; a dashboard to-do
   lists extractions waiting for review.

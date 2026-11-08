@@ -126,6 +126,14 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   optional: detect it (404 on its routes) and hide those options. Once Auto
   sort accepts files through `ctx.files` (it's listed by `/targets`), the page
   uses that instead and hides its direct options.
+- **Scan receipt** tab (`ui/index.html`, shown on touch devices or with
+  `?tab=scan` on Ledger's URL): photos come from `<input type="file"
+  capture="environment">` (works inside Ledger's iframe without camera
+  permissions, unlike `getUserMedia`), are shrunk on a canvas to JPEG, and
+  `jpegsToPdf` writes them as pages of one PDF (DCTDecode, no library). It
+  uploads with the same chunked routes as the extension and PATCHes a note;
+  no server route of its own. A PDF, so Claude (`ctx.llm` documents) and
+  Auto sort bills can read it.
 - The extension never talks to Ledger from its own origin: every request
   runs inside a Ledger tab via `chrome.scripting.executeScript({ world:
   "MAIN" })` (Ledger's cookie is SameSite=Strict and it refuses cross-site

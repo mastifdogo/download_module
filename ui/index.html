@@ -50,6 +50,19 @@
 	table.review .cell-desc { min-width: 9rem; }
 	table.review .cell-num { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
 	.small-btn { padding: 0.1rem 0.45rem; }
+	.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: -0.25rem 0 0.9rem; }
+	.tab { flex: 1; padding: 0.6rem 0.5rem; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+	.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+	.btn.big { padding: 0.7rem 1rem; font-size: 16px; }
+	.scan-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+	.scan-actions label { flex: 1 1 10rem; text-align: center; }
+	.visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
+	.scan-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: 0.6rem; margin-top: 0.9rem; }
+	.scan-page { position: relative; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }
+	.scan-page img { display: block; width: 100%; height: 10rem; object-fit: contain; }
+	.scan-page .cap { display: flex; justify-content: space-between; align-items: center; padding: 0.2rem 0.4rem; font-size: 12px; color: var(--muted); }
+	label.stacked { display: flex; flex-direction: column; gap: 0.2rem; font-size: 13px; color: var(--muted); }
+	label.stacked input { font-size: 16px; color: var(--text); }
 	.pill.archived { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
 	.actions { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem; }
 	.forward { margin-top: 0.5rem; }
@@ -77,6 +90,31 @@
 </style>
 </head>
 <body>
+<nav id="tabs" class="tabs hidden" role="tablist">
+	<button class="tab" role="tab" data-tab="inbox" aria-selected="true">Inbox</button>
+	<button class="tab" role="tab" data-tab="scan" aria-selected="false">Scan receipt</button>
+</nav>
+
+<section id="tab-scan" class="hidden" role="tabpanel">
+	<p class="muted small" style="margin-top:0">Photograph a receipt or bill. Several photos become the pages of one PDF, saved to the inbox, from where you can send it on or have the AI read it.</p>
+	<div class="scan-actions">
+		<label class="btn primary big">Take a photo<input id="scan-camera" type="file" accept="image/*" capture="environment" class="visually-hidden"></label>
+		<label class="btn big">Choose photos<input id="scan-pick" type="file" accept="image/*" multiple class="visually-hidden"></label>
+	</div>
+	<p id="scan-busy" class="muted small hidden">Preparing the photo…</p>
+	<div id="scan-pages" class="scan-pages"></div>
+	<div id="scan-save" class="panel hidden" style="margin-top:0.75rem">
+		<label class="stacked">File name<input id="scan-name" type="text" maxlength="255"></label>
+		<label class="stacked" style="margin-top:0.5rem">Note (optional)<input id="scan-note" type="text" maxlength="1000" placeholder="e.g. lunch with a client"></label>
+		<div class="row" style="margin-top:0.75rem">
+			<button class="btn" id="scan-clear">Start over</button>
+			<span class="spacer"></span>
+			<button class="btn primary big" id="scan-upload">Save to inbox</button>
+		</div>
+	</div>
+</section>
+
+<section id="tab-inbox" role="tabpanel">
 <div class="row">
 	<label class="inline">Show
 		<select id="filter">
@@ -107,7 +145,8 @@
 		<tbody></tbody>
 	</table>
 </div>
-<p id="empty" class="muted hidden">Nothing here. Files you send from your browser with the Send to Ledger extension arrive here.</p>
+<p id="empty" class="muted hidden">Nothing here. Files you send from your browser with the Send to Ledger extension, or receipts you scan with your phone, arrive here.</p>
+</section>
 
 <div id="toast"></div>
 
@@ -489,14 +528,155 @@
 		} catch (e) { $("ext-msg").textContent = ""; fail(e); }
 	};
 
-	// ------------------------------------------------------------- start (?file= from Ledger's search bar)
+	// ------------------------------------------------------------- Scan receipt (phones and tablets): photos -> one PDF -> the inbox
+	// The phone's camera is reached through a file input with capture: it works inside Ledger's frame without
+	// camera permissions. Photos are shrunk and put into a PDF in the browser, so the AI (Claude) and Auto
+	// sort can read them; nothing leaves the page except the upload to this inbox.
+	let parentQuery = new URLSearchParams();
+	try { parentQuery = new URLSearchParams(window.parent.location.search); } catch {}
+	const MOBILE = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+	const SCAN_TAB = MOBILE || parentQuery.get("tab") === "scan";
+	let pages = []; // [{ jpeg: Uint8Array, w, h, url }]
+
+	function showTab(name) {
+		for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.tab === name));
+		$("tab-inbox").classList.toggle("hidden", name !== "inbox");
+		$("tab-scan").classList.toggle("hidden", name !== "scan");
+		if (name === "inbox") load().catch(fail);
+	}
+	for (const b of document.querySelectorAll(".tab")) b.onclick = () => showTab(b.dataset.tab);
+
+	/** A photo as a JPEG at most 2000 px on its long side (upright, as the camera held it). */
+	async function photoToJpeg(file) {
+		let img;
+		try {
+			img = await createImageBitmap(file, { imageOrientation: "from-image" });
+		} catch {
+			img = await new Promise((resolve, reject) => {
+				const i = new Image();
+				i.onload = () => resolve(i);
+				i.onerror = () => reject(new Error(`${file.name || "This photo"} can't be read here; take it again or choose a JPEG or PNG.`));
+				i.src = URL.createObjectURL(file);
+			});
+		}
+		const w0 = img.width, h0 = img.height;
+		const k = Math.min(1, 2000 / Math.max(w0, h0));
+		const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
+		const canvas = document.createElement("canvas");
+		canvas.width = w;
+		canvas.height = h;
+		const g = canvas.getContext("2d");
+		g.fillStyle = "#fff"; // transparent PNGs on white
+		g.fillRect(0, 0, w, h);
+		g.drawImage(img, 0, 0, w, h);
+		img.close?.();
+		const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.82));
+		if (!blob) throw new Error("Couldn't prepare the photo.");
+		return { jpeg: new Uint8Array(await blob.arrayBuffer()), w, h, url: URL.createObjectURL(blob) };
+	}
+
+	/** A PDF with one JPEG per page, each page A4 wide. */
+	function jpegsToPdf(list) {
+		const enc = new TextEncoder();
+		const parts = [];
+		const offsets = [];
+		let len = 0;
+		const push = (x) => { const b = typeof x === "string" ? enc.encode(x) : x; parts.push(b); len += b.length; };
+		const obj = (n, ...body) => { offsets[n] = len; push(`${n} 0 obj\n`); body.forEach(push); push("\nendobj\n"); };
+		push("%PDF-1.4\n");
+		push(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a])); // binary marker
+		const kids = list.map((_, i) => `${3 + i * 3} 0 R`).join(" ");
+		obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
+		obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${list.length} >>`);
+		list.forEach((p, i) => {
+			const n = 3 + i * 3;
+			const pw = 595.28, ph = +((p.h * pw) / p.w).toFixed(2);
+			const draw = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
+			obj(n, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 ${n + 2} 0 R >> >> /Contents ${n + 1} 0 R >>`);
+			obj(n + 1, `<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`);
+			obj(n + 2, `<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpeg.length} >>\nstream\n`, p.jpeg, "\nendstream");
+		});
+		const count = 3 + list.length * 3;
+		const xref = len;
+		push(`xref\n0 ${count}\n0000000000 65535 f \n`);
+		for (let n = 1; n < count; n++) push(`${String(offsets[n]).padStart(10, "0")} 00000 n \n`);
+		push(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+		const out = new Uint8Array(len);
+		let at = 0;
+		for (const b of parts) { out.set(b, at); at += b.length; }
+		return out;
+	}
+
+	const b64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
+	/** Uploads bytes to this inbox the way the extension does (in chunks) → the file. */
+	async function uploadBytes(name, type, bytes) {
+		const { id, chunk_size } = await api("/files", { method: "POST", body: JSON.stringify({ name, content_type: type, size: bytes.length }) });
+		for (let i = 0, k = 0; i < bytes.length; i += chunk_size, k++) {
+			await api(`/files/${id}/chunks/${k}`, { method: "PUT", body: JSON.stringify({ data: b64(bytes.subarray(i, i + chunk_size)) }) });
+		}
+		return api(`/files/${id}/complete`, { method: "POST", body: "{}" });
+	}
+
+	function defaultScanName() {
+		const d = new Date();
+		const p2 = (n) => String(n).padStart(2, "0");
+		return `Receipt ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}.pdf`;
+	}
+
+	function drawPages() {
+		$("scan-pages").replaceChildren(...pages.map((p, i) => el("div", { class: "scan-page" },
+			el("img", { src: p.url, alt: `Page ${i + 1}` }),
+			el("div", { class: "cap" }, `Page ${i + 1}`, el("button", { class: "btn small-btn", "aria-label": `Remove page ${i + 1}`, onclick: () => { URL.revokeObjectURL(p.url); pages.splice(i, 1); drawPages(); } }, "×")),
+		)));
+		$("scan-save").classList.toggle("hidden", pages.length === 0);
+		$("scan-camera").parentElement.firstChild.textContent = pages.length ? "Add a page" : "Take a photo";
+		if (pages.length && !$("scan-name").value) $("scan-name").value = defaultScanName();
+	}
+
+	async function addPhotos(input) {
+		const files = [...input.files];
+		input.value = ""; // the same photo can be chosen again
+		if (!files.length) return;
+		$("scan-busy").classList.remove("hidden");
+		try {
+			for (const f of files) pages.push(await photoToJpeg(f));
+		} catch (e) { fail(e); } finally { $("scan-busy").classList.add("hidden"); drawPages(); }
+	}
+	$("scan-camera").onchange = (e) => addPhotos(e.target);
+	$("scan-pick").onchange = (e) => addPhotos(e.target);
+	$("scan-clear").onclick = () => { pages.forEach((p) => URL.revokeObjectURL(p.url)); pages = []; $("scan-name").value = ""; $("scan-note").value = ""; drawPages(); };
+	$("scan-upload").onclick = async () => {
+		const btn = $("scan-upload");
+		let name = $("scan-name").value.trim().replace(/[\u0000-\u001f/\\]/g, "-") || defaultScanName();
+		if (!/\.pdf$/i.test(name)) name += ".pdf";
+		btn.disabled = true;
+		btn.textContent = "Saving…";
+		try {
+			const pdf = jpegsToPdf(pages);
+			const f = await uploadBytes(name.slice(-255), "application/pdf", pdf);
+			const extra = $("scan-note").value.trim();
+			await api(`/files/${f.id}`, { method: "PATCH", body: JSON.stringify({ note: `Scanned with a phone camera (${pages.length} page${pages.length === 1 ? "" : "s"})${extra ? `: ${extra}` : ""}`.slice(0, 1000) }) });
+			$("scan-clear").onclick();
+			toast(`Saved ${f.name} to the inbox.${f.duplicate_of ? " (The same file arrived before.)" : ""}`);
+			$("filter").value = "new";
+			openId = f.id; // its Send panel: a module that takes receipts, Auto sort, or Extract data
+			showTab("inbox");
+			setTimeout(() => document.getElementById(`file-${f.id}`)?.scrollIntoView({ block: "start" }), 300);
+		} catch (e) { fail(e); } finally { btn.disabled = false; btn.textContent = "Save to inbox"; }
+	};
+	if (SCAN_TAB) {
+		$("tabs").classList.remove("hidden");
+		if (MOBILE) $("get-ext").classList.add("hidden"); // the extension is for desktop browsers
+	}
+
+	// ------------------------------------------------------------- start (?file= from Ledger's search bar, ?tab=scan)
 	(async () => {
-		let fileId = null;
-		try { fileId = new URLSearchParams(window.parent.location.search).get("file"); } catch {}
+		let fileId = parentQuery.get("file");
 		if (fileId && /^\d+$/.test(fileId)) {
 			$("filter").value = "all";
 			openId = Number(fileId);
 		}
+		if (SCAN_TAB && parentQuery.get("tab") === "scan" && !openId) return showTab("scan");
 		await load();
 		if (openId) document.getElementById(`file-${openId}`)?.scrollIntoView({ block: "center" });
 	})().catch(fail);
