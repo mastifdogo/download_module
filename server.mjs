@@ -129,6 +129,17 @@ function cleanTransactions(data) {
 	return out;
 }
 
+/** Rows a person edited before approving: every row must be valid (422 names the first bad one). */
+function checkRows(list) {
+	if (!Array.isArray(list) || list.length > 5000) throw new Error("rows must be a list of at most 5000 transactions");
+	const ok = cleanTransactions({ transactions: list });
+	if (ok.length !== list.length) {
+		const i = list.findIndex((t) => cleanTransactions({ transactions: [t] }).length === 0);
+		throw new Error(`row ${i + 1}: needs a real date (YYYY-MM-DD) and an amount such as -42.10`);
+	}
+	return ok;
+}
+
 /** Date,Description,Amount[,Balance] with quoting, and text cells guarded against spreadsheet formulas. */
 function toCsv(tx) {
 	const withBalance = tx.some((t) => t.balance !== "");
@@ -172,18 +183,32 @@ export default async function register(ctx) {
 	async function syncNotice() {
 		try {
 			const { rows } = await q(`SELECT name FROM ${T("files")} WHERE status = 'new' ORDER BY received_at DESC`);
-			if (rows.length === 0) return void (await ctx.dashboard.remove("inbox", "notification"));
 			const n = rows.length;
-			await ctx.dashboard.notify({
+			if (n === 0) await ctx.dashboard.remove("inbox", "notification");
+			else await ctx.dashboard.notify({
 				key: "inbox",
 				title: `${n} file${n === 1 ? "" : "s"} waiting in ${ctx.name}`,
 				body: rows.slice(0, 3).map((r) => r.name).join(", ") + (n > 3 ? ", …" : ""),
 				level: "info",
 				link: `/apps/${ctx.id}`,
 			});
+			await syncReviewTodo();
 		} catch (err) {
 			ctx.log.warn("dashboard update failed", { err: String(err?.message || err) });
 		}
+	}
+
+	// A to-do while AI suggestions wait for a person to check them.
+	async function syncReviewTodo() {
+		const { rows } = await q(`SELECT f.name FROM ${T("extractions")} e JOIN ${T("files")} f ON f.id = e.file_id WHERE e.status = 'pending' ORDER BY e.id`);
+		if (rows.length === 0) return void (await ctx.dashboard.remove("review"));
+		const n = rows.length;
+		await ctx.dashboard.todo({
+			key: "review",
+			title: `Check ${n} AI extraction${n === 1 ? "" : "s"} in ${ctx.name}`,
+			body: rows.slice(0, 3).map((r) => r.name).join(", ") + (n > 3 ? ", …" : ""),
+			link: `/apps/${ctx.id}`,
+		});
 	}
 
 	// ---------------------------------------------------------------------
@@ -256,6 +281,10 @@ export default async function register(ctx) {
 			[status],
 		);
 		const { rows: counts } = await q(`SELECT status, count(*)::int AS n FROM ${T("files")} WHERE status <> 'uploading' GROUP BY status`);
+		// AI suggestions waiting for review.
+		const { rows: pend } = await q(`SELECT file_id, max(id) AS id FROM ${T("extractions")} WHERE status = 'pending' GROUP BY file_id`);
+		const pending = new Map(pend.map((p) => [String(p.file_id), p.id]));
+		for (const r of rows) if (pending.has(String(r.id))) r.pending_extraction = pending.get(String(r.id));
 		// Files handed to another module: what that module made of them (ctx.files outbox).
 		if (rows.some((r) => r.sent_file_id != null)) {
 			const out = new Map((await ctx.files.outbox({ limit: 500 })).map((o) => [String(o.id), o]));
@@ -412,34 +441,98 @@ export default async function register(ctx) {
 		const result = await ctx.llm.json(ask); // its HttpErrors (409/403/422/502) say what to fix
 		const tx = cleanTransactions(result.data);
 		if (tx.length === 0) throw bad("the AI found no transactions in this file");
-		const csv = toCsv(tx);
-		const data = Buffer.from(csv, "utf8");
+		const currency = typeof result.data?.currency === "string" && /^[A-Z]{3}$/.test(result.data.currency) ? result.data.currency : "";
+		// Only a suggestion: nothing is created or changed until a person approves it.
+		await q(`UPDATE ${T("extractions")} SET status = 'rejected', decided_by = $2, decided_at = now() WHERE file_id = $1 AND status = 'pending'`, [f.id, req.user.username]);
+		const { rows } = await q(
+			`INSERT INTO ${T("extractions")} (file_id, model, currency, instructions, rows, created_by) VALUES ($1, $2, $3, $4, $5::jsonb, $6) RETURNING id`,
+			[f.id, String(result.model ?? "").slice(0, 200), currency, typeof extra === "string" ? extra.trim() : "", JSON.stringify(tx), req.user.username],
+		);
+		ctx.log.info("data extracted for review", { file: String(f.id), extraction: String(rows[0].id), transactions: tx.length, model: result.model, by: req.user.username });
+		await syncNotice();
+		return ctx.response(201, await getExtraction(rows[0].id));
+	});
+
+	async function getExtraction(id) {
+		if (!/^\d+$/.test(String(id))) throw new ctx.HttpError(404, "no such extraction");
+		const { rows } = await q(
+			`SELECT e.id, e.file_id, f.name AS file_name, e.status, e.model, e.currency, e.instructions, e.rows, e.created_by, e.created_at, e.decided_by, e.decided_at, e.csv_file_id
+			   FROM ${T("extractions")} e JOIN ${T("files")} f ON f.id = e.file_id WHERE e.id = $1`,
+			[id],
+		);
+		if (!rows[0]) throw new ctx.HttpError(404, "no such extraction");
+		return rows[0];
+	}
+
+	// GET /extractions?status=pending|approved|rejected|all: suggestions to review (without their rows).
+	ctx.route("GET", "/extractions", async (req) => {
+		const status = req.query.get("status") || "pending";
+		if (!["pending", "approved", "rejected", "all"].includes(status)) throw bad("status must be pending, approved, rejected or all");
+		const { rows } = await q(
+			`SELECT e.id, e.file_id, f.name AS file_name, e.status, e.model, e.currency, jsonb_array_length(e.rows) AS transactions, e.created_by, e.created_at, e.decided_by, e.decided_at, e.csv_file_id
+			   FROM ${T("extractions")} e JOIN ${T("files")} f ON f.id = e.file_id WHERE ($1 = 'all' OR e.status = $1) ORDER BY e.id DESC LIMIT 200`,
+			[status],
+		);
+		return { data: rows };
+	});
+
+	ctx.route("GET", "/extractions/:id", async (req) => getExtraction(req.params.id));
+
+	// POST /extractions/:id/approve {rows?}: the person's go-ahead, with their edits. Creates the CSV in the
+	// inbox and moves the original file to Sent.
+	ctx.route("POST", "/extractions/:id/approve", async (req) => {
+		const e = await getExtraction(req.params.id);
+		if (e.status !== "pending") throw new ctx.HttpError(409, `this suggestion was already ${e.status}`);
+		let tx = e.rows;
+		if (req.body?.rows !== undefined) {
+			try {
+				tx = checkRows(req.body.rows);
+			} catch (err) {
+				throw bad(err.message);
+			}
+		}
+		if (tx.length === 0) throw bad("there are no transactions left; reject the suggestion instead");
+		const f = await getFile(e.file_id);
+		const data = Buffer.from(toCsv(tx), "utf8");
 		const sha = createHash("sha256").update(data).digest("hex");
 		const chunks = [];
 		for (let i = 0; i < data.length; i += CHUNK_SIZE) chunks.push(data.subarray(i, i + CHUNK_SIZE));
 		const name = csvName(f.name);
-		const currency = typeof result.data?.currency === "string" && /^[A-Z]{3}$/.test(result.data.currency) ? ` in ${result.data.currency}` : "";
-		const memo = `Extracted by AI (${result.model}) from ${f.name}: ${tx.length} transaction${tx.length === 1 ? "" : "s"}${currency}. Check it before posting.`.slice(0, 1000);
-		// One statement, so the file and its bytes appear together.
+		const edited = req.body?.rows !== undefined && JSON.stringify(tx) !== JSON.stringify(e.rows) ? `, checked and edited by ${req.user.username}` : `, approved by ${req.user.username}`;
+		const memo = `Extracted by AI (${e.model}) from ${f.name}: ${tx.length} transaction${tx.length === 1 ? "" : "s"}${e.currency ? ` in ${e.currency}` : ""}${edited}.`.slice(0, 1000);
+		// One statement: the file, its bytes, and the suggestion marked approved appear together, once.
 		const { rows } = await q(
-			`WITH f AS (
+			`WITH claim AS (
+				UPDATE ${T("extractions")} SET status = 'approved', decided_by = $6, decided_at = now(), rows = $8::jsonb
+				 WHERE id = $9 AND status = 'pending' RETURNING id
+			), f AS (
 				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by)
-				VALUES ($1, 'text/csv', $2, $3, 'new', $4, $5, $6) RETURNING id
+				SELECT $1, 'text/csv', $2, $3, 'new', $4, $5, $6 FROM claim RETURNING id
 			), c AS (
 				INSERT INTO ${T("file_chunks")} (file_id, idx, data)
 				SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($7::bytea[]) WITH ORDINALITY AS u(data, n)
 			)
 			SELECT id FROM f`,
-			[name, data.length, sha, f.source_url, memo, req.user.username, chunks],
+			[name, data.length, sha, f.source_url, memo, req.user.username, chunks, JSON.stringify(tx), e.id],
 		);
+		if (!rows[0]) throw new ctx.HttpError(409, "this suggestion was already decided");
 		const id = rows[0].id;
+		await q(`UPDATE ${T("extractions")} SET csv_file_id = $2 WHERE id = $1`, [e.id, id]);
 		await q(
 			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = NULL, updated_at = now() WHERE id = $1`,
 			[f.id, `extracted to ${name}`.slice(0, 200), `/apps/${ctx.id}?file=${id}`, req.user.username],
 		);
-		ctx.log.info("data extracted", { file: String(f.id), csv: String(id), transactions: tx.length, model: result.model, by: req.user.username });
+		ctx.log.info("extraction approved", { extraction: String(e.id), file: String(f.id), csv: String(id), transactions: tx.length, by: req.user.username });
 		await syncNotice();
-		return ctx.response(201, { ...(await getFile(id)), transactions: tx.length, model: result.model });
+		return { ...(await getFile(id)), transactions: tx.length };
+	});
+
+	ctx.route("POST", "/extractions/:id/reject", async (req) => {
+		const e = await getExtraction(req.params.id);
+		if (e.status !== "pending") throw new ctx.HttpError(409, `this suggestion was already ${e.status}`);
+		await q(`UPDATE ${T("extractions")} SET status = 'rejected', decided_by = $2, decided_at = now() WHERE id = $1 AND status = 'pending'`, [e.id, req.user.username]);
+		await syncNotice();
+		return getExtraction(e.id);
 	});
 
 	ctx.route("DELETE", "/files/:id", async (req) => {

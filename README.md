@@ -16,10 +16,12 @@ A module for [Ledger (Bookeeping)](https://github.com/mastifdogo/Bookeeping). It
     receiving module's result shown on the file;
   - saved to Ledger's CSV files for journal import;
   - run through **Extract data** (for files that aren't a CSV already: PDFs and text files such as TXT, OFX,
-    QFX, HTML, XML, JSON, EML): the AI set up under Settings → AI reads its transactions into a new
-    CSV (`Date,Description,Amount,Balance`, money out negative) that lands in the inbox, ready to
-    send on; the original moves to *Sent*. PDFs need Claude as the provider; Ollama and
-    OpenAI-compatible servers read text files only. Check the numbers before posting them;
+    QFX, HTML, XML, JSON, EML): the AI set up under Settings → AI reads its transactions, and you
+    **check them before anything happens**: correct, remove or add rows, then *Approve* (a CSV,
+    `Date,Description,Amount,Balance` with money out negative, lands in the inbox ready to send on,
+    and the original moves to *Sent*) or *Reject* (nothing is created). A dashboard to-do points to
+    extractions waiting for review. PDFs need Claude as the provider; Ollama and OpenAI-compatible
+    servers read text files only;
   - downloaded, archived or deleted.
 
   The extension can also send statements and bills straight to Auto sort.
@@ -65,7 +67,10 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `GET` | `/files/:id`, `/files/:id/content` | one file; its bytes (base64) |
 | `POST` | `/files/:id/sent` | `{to, link?}`: record where the page forwarded it |
 | `GET` | `/ai` | `{configured, allowed, reads_pdf, model}`: whether Extract data can be offered |
-| `POST` | `/files/:id/extract` | `{instructions?}`: the AI reads a PDF or text file → the new CSV file (`transactions`, `model`); the original is marked sent |
+| `POST` | `/files/:id/extract` | `{instructions?}`: the AI reads a PDF or text file → a **pending** extraction `{id, file_id, rows: [{date, description, amount, balance}], model, currency}`; nothing else changes |
+| `GET` | `/extractions?status=pending\|approved\|rejected\|all`, `/extractions/:id` | extractions waiting for review (the list without rows) |
+| `POST` | `/extractions/:id/approve` | `{rows?}` (the person's corrected rows; every row needs a real date and amount): creates the CSV in the inbox, marks the original sent → the CSV file |
+| `POST` | `/extractions/:id/reject` | discards the suggestion |
 | `GET` | `/targets` | modules that take files from other modules, and which kinds |
 | `POST` | `/files/:id/handoff` | `{to, kind, account_code?, note?}`: hand the file to that module (`kind`: statement, bill, receipt, transaction); it's marked sent and `GET /files` shows the receiver's `handoff: {status, result}` |
 | `PATCH`/`DELETE` | `/files/:id` | `{status: "new"\|"archived", note?, name?}`; delete |
@@ -101,6 +106,9 @@ changed), tag `v<version>`, and create a GitHub Release from the tag.
 
 ## Changes
 
+- **0.1.0:** What the AI extracts is a suggestion you check first: review, correct and approve the
+  rows (or reject them) before the CSV is created and the original moves to Sent; a dashboard to-do
+  lists extractions waiting for review.
 - **0.0.3:** Clean-up uses each organization's own *Delete sent and archived files after* setting
   (settings are per organization from Ledger 0.11.1).
 - **0.0.2:** For Ledger 0.11.0: hand files to any module that takes them, and see what it did with

@@ -42,6 +42,14 @@
 	.pill.new { background: var(--warn-bg); color: var(--warn); }
 	.pill.sent { background: var(--good-bg); color: var(--good); }
 	.bad { color: var(--bad); }
+	.review-note { margin-top: 0.3rem; color: var(--warn); }
+	.review-wrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
+	table.review th, table.review td { padding: 0.2rem 0.3rem; }
+	table.review input { width: 100%; padding: 0.2rem 0.35rem; font-size: 13px; }
+	table.review .cell-date { min-width: 6.8rem; }
+	table.review .cell-desc { min-width: 9rem; }
+	table.review .cell-num { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+	.small-btn { padding: 0.1rem 0.45rem; }
 	.pill.archived { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
 	.actions { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem; }
 	.forward { margin-top: 0.5rem; }
@@ -52,11 +60,18 @@
 	code { font-size: 13px; }
 	@media (max-width: 640px) {
 		body { padding: 0.75rem 0.75rem 3rem; }
-		table.stack thead { display: none; }
-		table.stack tr { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
-		table.stack td { border: 0; padding: 0; }
-		table.stack td.wide { flex-basis: 100%; }
-		table.stack td.num { margin-left: auto; }
+		table.stack > thead { display: none; }
+		table.stack, table.stack > tbody, table.review, table.review > tbody { display: block; width: 100%; }
+		table.stack > tbody > tr { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
+		table.stack > tbody > tr > td { border: 0; padding: 0; }
+		table.stack > tbody > tr > td.wide { flex-basis: 100%; min-width: 0; }
+		table.review > thead { display: none; }
+		table.review > tbody > tr { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.35rem; border-bottom: 1px solid var(--border); }
+		table.review > tbody > tr > td { border: 0; padding: 0; flex: 1 1 5rem; min-width: 0; }
+		table.review > tbody > tr > td.wide { flex-basis: 100%; order: 5; }
+		table.review > tbody > tr > td:last-child { flex: 0 0 auto; }
+		table.review input, table.review .cell-date, table.review .cell-desc, table.review .cell-num { min-width: 0; }
+		table.stack > tbody > tr > td.num { margin-left: auto; }
 		#toast { left: 0.75rem; right: 0.75rem; max-width: none; }
 	}
 </style>
@@ -220,7 +235,9 @@
 						f.status === "sent" ? el("div", { class: "small" }, "Sent to ", f.sent_link ? el("a", { href: "#", onclick: (e) => { e.preventDefault(); goLedger(f.sent_link); } }, f.sent_to) : f.sent_to, f.sent_by ? ` by ${f.sent_by}` : "") : null,
 						f.handoff ? el("div", { class: `small ${f.handoff.status === "rejected" ? "bad" : "muted"}` }, HANDOFF[f.handoff.status] || f.handoff.status, f.handoff.result ? `: ${f.handoff.result}` : "") : null,
 						actions(f),
-						openId === f.id ? forwardPanel(f) : null,
+						f.pending_extraction && reviewId !== f.pending_extraction ? el("div", { class: "small review-note" }, "AI extracted data from this file. ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); openReview(f.pending_extraction); } }, "Check and approve it")) : null,
+						reviewId && review && review.file_id === f.id ? reviewPanel(f) : null,
+						openId === f.id && !(review && review.file_id === f.id) ? forwardPanel(f) : null,
 					),
 					el("td", { class: "num" }, size(Number(f.size_bytes))),
 					el("td", { class: "small" }, f.source_url ? el("span", { title: f.source_url }, new URL(f.source_url).host) : el("span", { class: "muted" }, "dropped file")),
@@ -280,7 +297,7 @@
 		const instructions = el("input", { type: "text", maxlength: "1000", placeholder: "Optional hints, e.g. “only the chequing account”", style: "flex:1;min-width:12rem" });
 		const ext = el("div", { style: "margin-top:0.4rem" },
 			el("div", { class: "row" }, instructions),
-			el("div", { class: "muted", style: "margin-top:0.3rem" }, "The new CSV (Date, Description, Amount, Balance) lands in the inbox, ready to send to Auto sort or Ledger's CSV files; this file moves to Sent. Check the numbers before posting them."),
+			el("div", { class: "muted", style: "margin-top:0.3rem" }, "You'll check what the AI read, and correct it, before anything is created. When you approve, a CSV (Date, Description, Amount, Balance) lands in the inbox, ready to send on, and this file moves to Sent."),
 		);
 		const sync = () => {
 			const modStmt = /^mod:[^:]+:statement$/.test(dest.value);
@@ -347,11 +364,72 @@
 	async function extract(f, instructions) {
 		const body = instructions.trim() ? { instructions: instructions.trim() } : {};
 		const r = await api(`/files/${f.id}/extract`, { method: "POST", body: JSON.stringify(body) });
-		toast(`Extracted ${r.transactions} transaction${r.transactions === 1 ? "" : "s"} into ${r.name}.`);
-		$("filter").value = "new";
-		openId = r.id; // open it, ready to send on
+		openId = null;
+		review = r;
+		reviewId = r.id;
+		toast(`The AI read ${r.rows.length} transaction${r.rows.length === 1 ? "" : "s"}. Check them, then approve.`);
 		await load();
-		document.getElementById(`file-${r.id}`)?.scrollIntoView({ block: "center" });
+	}
+
+	// ------------------------------------------------------------- reviewing what the AI read (nothing happens until approved)
+	let reviewId = null; // the extraction being reviewed
+	let review = null; // { id, file_id, rows, model, currency, ... }, rows edited in place
+	async function openReview(id) {
+		try {
+			review = await api(`/extractions/${id}`);
+			reviewId = id;
+			openId = null;
+			render();
+			document.getElementById(`file-${review.file_id}`)?.scrollIntoView({ block: "start" });
+		} catch (e) { fail(e); }
+	}
+	const closeReview = () => { review = null; reviewId = null; };
+
+	function reviewPanel(f) {
+		const r = review;
+		const input = (row, key, attrs) => el("input", { ...attrs, value: row[key], "aria-label": key, oninput: (e) => (row[key] = e.target.value) });
+		const body = el("tbody");
+		const draw = () => body.replaceChildren(...r.rows.map((row, i) => el("tr", {},
+			el("td", {}, input(row, "date", { type: "text", size: "10", placeholder: "YYYY-MM-DD", class: "cell-date" })),
+			el("td", { class: "wide" }, input(row, "description", { type: "text", class: "cell-desc", placeholder: "Description" })),
+			el("td", { class: "num" }, input(row, "amount", { type: "text", inputmode: "decimal", size: "9", class: "cell-num", placeholder: "Amount" })),
+			el("td", { class: "num" }, input(row, "balance", { type: "text", inputmode: "decimal", size: "9", class: "cell-num", placeholder: "Balance" })),
+			el("td", {}, el("button", { class: "btn small-btn", title: "Remove this row", "aria-label": "Remove row", onclick: () => { r.rows.splice(i, 1); draw(); } }, "×")),
+		)));
+		draw();
+		const approve = el("button", { class: "btn primary", onclick: async () => {
+			approve.disabled = true;
+			try {
+				const out = await api(`/extractions/${r.id}/approve`, { method: "POST", body: JSON.stringify({ rows: r.rows.map(({ date, description, amount, balance }) => ({ date, description, amount, balance: balance ?? "" })) }) });
+				closeReview();
+				toast(`Approved: ${out.transactions} transaction${out.transactions === 1 ? "" : "s"} in ${out.name}.`);
+				$("filter").value = "new";
+				openId = out.id; // open it, ready to send on
+				await load();
+				document.getElementById(`file-${out.id}`)?.scrollIntoView({ block: "center" });
+			} catch (e) { fail(e); approve.disabled = false; }
+		} }, "Approve and create the CSV");
+		const reject = el("button", { class: "btn danger", onclick: async () => {
+			try {
+				await api(`/extractions/${r.id}/reject`, { method: "POST", body: "{}" });
+				closeReview();
+				toast("Rejected. Nothing was created.");
+				await load();
+			} catch (e) { fail(e); }
+		} }, "Reject");
+		return el("div", { class: "panel forward small" },
+			el("div", {}, el("strong", {}, "Check what the AI read"), ` · ${r.rows.length} transactions${r.currency ? ` in ${r.currency}` : ""} · ${r.model}`),
+			el("div", { class: "muted", style: "margin:0.2rem 0 0.4rem" }, "Correct anything wrong, remove rows that aren't transactions, then approve. Amounts: negative is money out. Nothing is created until you approve."),
+			el("div", { class: "review-wrap" }, el("table", { class: "review" },
+				el("thead", {}, el("tr", {}, el("th", {}, "Date"), el("th", {}, "Description"), el("th", { class: "num" }, "Amount"), el("th", { class: "num" }, "Balance"), el("th", {}))),
+				body)),
+			el("div", { class: "actions" },
+				el("button", { class: "btn", onclick: () => { r.rows.push({ date: "", description: "", amount: "", balance: "" }); draw(); } }, "Add a row"),
+				el("span", { class: "spacer" }),
+				reject,
+				el("button", { class: "btn", onclick: () => { closeReview(); render(); } }, "Later"),
+				approve),
+		);
 	}
 
 	async function download(f) {

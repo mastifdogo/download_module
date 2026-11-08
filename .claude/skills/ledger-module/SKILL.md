@@ -53,6 +53,10 @@ feature the module uses (the context file says which version added what;
   has its own values (Ledger ≥ 0.11.1): call `ctx.settings.get()` where
   they're used (inside `ctx.orgs.forEach` for background work), never one
   cached copy.
+- AI only proposes; a person approves: `ctx.llm` output is stored as a
+  pending suggestion, shown in the UI, and acted on only by an explicit POST
+  from a user (`req.user`), who can edit or reject it. Never act on it from a
+  background job or `onReceive`, and no auto-approve setting.
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.
 
 ## 3. Check before saying it works
@@ -107,7 +111,12 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   them); `sent_file_id` (migration 002) links the outbox entry so `GET /files`
   shows the receiver's status and result (`handoff`).
 - `POST /files/:id/extract` reads a non-CSV file (PDF when the provider
-  reads PDFs, or text) with `ctx.llm.json` into a new CSV in the inbox.
+  reads PDFs, or text) with `ctx.llm.json` into a **pending** row of
+  `extractions` (migration 003), and nothing else. The page shows the rows
+  for review; `POST /extractions/:id/approve {rows?}` (the person's edits,
+  validated strictly) creates the CSV and marks the original sent in one
+  claim, `…/reject` discards it. `syncNotice` also keeps the "review"
+  dashboard to-do in step with pending extractions.
 - Upload API is chunked (512 KiB chunks) to stay under Ledger's 1 MiB JSON
   limit: `POST /files` → `PUT /files/:id/chunks/:i` → `POST /files/:id/complete`.
   Bytes live in `file_chunks`; `GET /files/:id/content` reassembles them.
