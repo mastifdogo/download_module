@@ -1,6 +1,9 @@
-// Downloads: an inbox in Ledger for files sent from the browser (the Send to
-// Ledger extension in ui/extension/). Ledger loads this file at startup and
-// calls register(ctx); API: docs/MODULE_LLM_CONTEXT.md in the Ledger repository.
+// Import (module id "downloads", kept so installs and data carry over): an inbox
+// in Ledger for files from the browser (the Send to Ledger extension in
+// ui/extension/), from email (lib/mail.mjs), from a network scanner
+// (lib/escl.mjs), from a phone's camera or uploaded on the page. Ledger loads
+// this file at startup and calls register(ctx); API: docs/MODULE_LLM_CONTEXT.md
+// in the Ledger repository.
 //
 // Upload (the extension does this from a Ledger tab, with the user's login):
 //   POST /files {name, content_type, size, source_url?}  -> {id, chunk_size}
@@ -8,13 +11,17 @@
 //   POST /files/:id/complete                              -> the file
 // Chunks keep each request under Ledger's 1 MiB JSON limit.
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { capabilities, findScanners, normalizeScannerUrl, scan, ScannerError, status as scannerStatus } from "./lib/escl.mjs";
+import { registerMail } from "./lib/mail.mjs";
+import { jpegsToPdf } from "./lib/pdf.mjs";
 
 const CHUNK_SIZE = 512 * 1024; // bytes; base64 makes it ~700 KB, under Ledger's 1 MiB body limit
 const STALE_UPLOAD_HOURS = 24;
 const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
-	sent_to, sent_link, sent_by, sent_at, sent_file_id, updated_at`;
+	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, updated_at`;
+const CLIENT_ORIGINS = ["", "camera", "upload"]; // what the page and the extension may say; email and scanner are set here
 const FILE_KINDS = ["statement", "bill", "receipt", "transaction"]; // what ctx.files carries (Ledger >= 0.11.0)
 const ACCOUNT_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
@@ -213,6 +220,25 @@ export default async function register(ctx) {
 		return rows[0];
 	}
 
+	/** Stores a whole file (from email or the scanner) in the inbox in one statement → its id. */
+	async function saveFile(name, type, data, { origin = "", detail = "", note = "", source_url = "", by }) {
+		const chunks = [];
+		for (let i = 0; i < data.length; i += CHUNK_SIZE) chunks.push(data.subarray(i, i + CHUNK_SIZE));
+		const { rows } = await q(
+			`WITH f AS (
+				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail)
+				VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9) RETURNING id
+			), c AS (
+				INSERT INTO ${T("file_chunks")} (file_id, idx, data)
+				SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($10::bytea[]) WITH ORDINALITY AS u(data, n)
+			)
+			SELECT id FROM f`,
+			[name.slice(0, 255), String(type).slice(0, 200), data.length, createHash("sha256").update(data).digest("hex"), source_url, note.slice(0, 1000), by, origin, detail.slice(0, 200), chunks],
+		);
+		ctx.log.info("file received", { file: String(rows[0].id), name, bytes: data.length, origin, by });
+		return rows[0].id;
+	}
+
 	// ---------------------------------------------------------------------
 	// Dashboard: one notification while files wait in the inbox
 	// ---------------------------------------------------------------------
@@ -263,9 +289,11 @@ export default async function register(ctx) {
 		const type = typeof b.content_type === "string" ? b.content_type.slice(0, 200) : "";
 		let source = typeof b.source_url === "string" ? b.source_url.trim() : "";
 		if (source && !/^https?:\/\/\S{1,2000}$/.test(source)) source = "";
+		const origin = b.origin === undefined ? "" : b.origin;
+		if (!CLIENT_ORIGINS.includes(origin)) throw bad('origin must be "camera" or "upload" (or left out)');
 		const { rows } = await q(
-			`INSERT INTO ${T("files")} (name, content_type, size_bytes, source_url, received_by) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-			[name, type, size, source, req.user.username],
+			`INSERT INTO ${T("files")} (name, content_type, size_bytes, source_url, received_by, origin) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			[name, type, size, source, req.user.username, origin],
 		);
 		return ctx.response(201, { id: rows[0].id, chunk_size: CHUNK_SIZE, chunks: Math.ceil(size / CHUNK_SIZE) });
 	});
@@ -637,6 +665,123 @@ export default async function register(ctx) {
 		.catch(() => {});
 
 	// ---------------------------------------------------------------------
+	// Email (lib/mail.mjs)
+	// ---------------------------------------------------------------------
+
+	registerMail(ctx, { q, T, saveFile, maxBytes: async () => (await options()).maxBytes, syncNotice });
+
+	// ---------------------------------------------------------------------
+	// Network scanner (lib/escl.mjs): set up by an admin, used by everyone. Scans run in the
+	// background (a feeder of pages takes a while); the page polls GET /scans/:id.
+	// ---------------------------------------------------------------------
+
+	const scannerUrl = async () => String((await ctx.settings.get()).scanner_url ?? "").trim();
+
+	// GET /scanner: the scanner set up for this organization, what it can do, and whether it's ready.
+	ctx.route("GET", "/scanner", async (req) => {
+		const admin = req.user.role === "admin";
+		const raw = await scannerUrl();
+		if (!raw) return { configured: false, admin };
+		try {
+			const url = normalizeScannerUrl(raw);
+			const [caps, st] = await Promise.all([capabilities(url), scannerStatus(url).catch(() => null)]);
+			return { configured: true, admin, reachable: true, url, name: caps.name, sources: caps.sources, state: st?.state ?? "", adf: st?.adf ?? "" };
+		} catch (err) {
+			if (!(err instanceof ScannerError)) throw err;
+			return { configured: true, admin, reachable: false, url: raw, error: err.message };
+		}
+	});
+
+	// POST /scanner/find (admins): eSCL scanners announcing themselves on the server's network.
+	ctx.route("POST", "/scanner/find", async (req) => {
+		if (req.user.role !== "admin") throw new ctx.HttpError(403, "only an admin can set up the scanner");
+		return { data: await findScanners() };
+	});
+
+	// POST /scanner {url} (admins): use this scanner ("" forgets it). It must answer as an eSCL scanner.
+	ctx.route("POST", "/scanner", async (req) => {
+		if (req.user.role !== "admin") throw new ctx.HttpError(403, "only an admin can set up the scanner");
+		const raw = req.body?.url;
+		if (typeof raw !== "string" || raw.length > 300) throw bad("url must be the scanner's address");
+		if (raw.trim() === "") {
+			await ctx.settings.set({ scanner_url: "" });
+			return { configured: false, admin: true };
+		}
+		let url;
+		let caps;
+		try {
+			url = normalizeScannerUrl(raw);
+			caps = await capabilities(url);
+		} catch (err) {
+			if (err instanceof ScannerError) throw bad(err.message);
+			throw err;
+		}
+		await ctx.settings.set({ scanner_url: url });
+		ctx.log.info("scanner set up", { url, name: caps.name, by: req.user.username });
+		return { configured: true, admin: true, reachable: true, url, name: caps.name, sources: caps.sources };
+	});
+
+	const scans = new Map(); // id -> job (in memory: a scan lasts minutes, not across restarts)
+	const publicScan = (j) => ({ id: j.id, status: j.status, pages: j.pages, file_id: j.file_id, file_name: j.file_name, error: j.error, started_at: j.started_at });
+
+	// POST /scans {source?: "Platen"|"Feeder", color?: "color"|"gray", resolution?, duplex?, name?} → 202 {id, status}
+	ctx.route("POST", "/scans", async (req) => {
+		const b = req.body ?? {};
+		if (b.source !== undefined && !["Platen", "Feeder"].includes(b.source)) throw bad('source must be "Platen" (the glass) or "Feeder"');
+		if (b.color !== undefined && !["color", "gray"].includes(b.color)) throw bad('color must be "color" or "gray"');
+		if (b.resolution !== undefined && !(Number.isInteger(b.resolution) && b.resolution >= 75 && b.resolution <= 1200)) throw bad("resolution must be 75 to 1200 dpi");
+		if (b.duplex !== undefined && typeof b.duplex !== "boolean") throw bad("duplex must be true or false");
+		let name = b.name === undefined || b.name === "" ? "" : typeof b.name === "string" ? b.name.trim() : null;
+		if (name === null || (name && !NAME_RE.test(name))) throw bad("name must be a file name of 1-255 characters");
+		const raw = await scannerUrl();
+		if (!raw) throw new ctx.HttpError(409, "no scanner is set up; an admin can choose one on the Scan tab");
+		const org = (await ctx.orgs.current()).id;
+		const running = [...scans.values()].find((j) => j.status === "scanning" && j.url === raw);
+		if (running) throw new ctx.HttpError(409, `the scanner is busy with ${running.by}'s scan`);
+		for (const [k, j] of scans) if (j.status !== "scanning" && Date.now() - j.started > 3600_000) scans.delete(k);
+		const job = { id: randomUUID(), org, url: raw, status: "scanning", pages: 0, file_id: null, file_name: null, error: null, by: req.user.username, started: Date.now(), started_at: new Date().toISOString() };
+		scans.set(job.id, job);
+		// Not awaited: runs on in the background, in this request's organization.
+		(async () => {
+			try {
+				const url = normalizeScannerUrl(raw);
+				const caps = await capabilities(url);
+				const r = await scan(url, caps, { source: b.source, color: b.color, resolution: b.resolution ?? 300, duplex: b.duplex, onPage: (n) => (job.pages = n) });
+				const jpegs = r.pages.filter((p) => p.type === "image/jpeg").map((p) => p.data);
+				const data = jpegs.length === r.pages.length ? jpegsToPdf(jpegs) : r.pages[0].data;
+				const { maxBytes } = await options();
+				if (data.length > maxBytes) throw new ScannerError(`the scan is ${(data.length / 1048576).toFixed(1)} MB, more than the ${maxBytes / 1048576} MB allowed under Settings → ${ctx.name}; scan at a lower resolution or in grey`);
+				const d = new Date();
+				const p2 = (n) => String(n).padStart(2, "0");
+				let fileName = name || `Scan ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}.pdf`;
+				if (!/\.pdf$/i.test(fileName) && data.subarray(0, 5).toString("latin1") === "%PDF-") fileName = `${fileName}.pdf`.slice(-255);
+				const n = r.pages.length;
+				job.file_id = await saveFile(fileName, "application/pdf", data, {
+					origin: "scanner",
+					detail: caps.name,
+					note: `Scanned on ${caps.name}${r.source === "Feeder" ? " (feeder)" : ""}${jpegs.length ? `, ${n} page${n === 1 ? "" : "s"}` : ""}, ${r.resolution} dpi`,
+					by: job.by,
+				});
+				job.file_name = fileName;
+				job.pages = jpegs.length || job.pages;
+				job.status = "done";
+				await syncNotice();
+			} catch (err) {
+				job.status = "error";
+				job.error = err instanceof ScannerError ? err.message : `the scan failed: ${String(err?.message || err)}`;
+				ctx.log.warn("scan failed", { err: job.error, by: job.by });
+			}
+		})();
+		return ctx.response(202, publicScan(job));
+	});
+
+	ctx.route("GET", "/scans/:id", async (req) => {
+		const j = scans.get(req.params.id);
+		if (!j || j.org !== (await ctx.orgs.current()).id) throw new ctx.HttpError(404, "no such scan");
+		return publicScan(j);
+	});
+
+	// ---------------------------------------------------------------------
 	// Ledger's search bar
 	// ---------------------------------------------------------------------
 
@@ -646,7 +791,7 @@ export default async function register(ctx) {
 		const like = `%${term.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
 		const { rows } = await q(
 			`SELECT id, name, status, size_bytes, received_at FROM ${T("files")}
-			  WHERE status <> 'uploading' AND (name ILIKE $1 OR source_url ILIKE $1 OR note ILIKE $1) ORDER BY received_at DESC LIMIT $2`,
+			  WHERE status <> 'uploading' AND (name ILIKE $1 OR source_url ILIKE $1 OR note ILIKE $1 OR origin_detail ILIKE $1) ORDER BY received_at DESC LIMIT $2`,
 			[like, Math.min(limit, 20)],
 		);
 		return rows.map((r) => ({
@@ -656,5 +801,5 @@ export default async function register(ctx) {
 		}));
 	});
 
-	ctx.log.info("downloads module ready");
+	ctx.log.info("import module ready");
 }

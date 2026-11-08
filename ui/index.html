@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Downloads</title>
+<title>Import</title>
 <style>
 	:root {
 		--bg: #fff; --panel: #f6f8fa; --text: #1d232b; --muted: #5d6875; --border: #dde1e6; --accent: #1f6feb;
@@ -90,12 +90,17 @@
 </style>
 </head>
 <body>
-<nav id="tabs" class="tabs hidden" role="tablist">
+<nav id="tabs" class="tabs" role="tablist">
 	<button class="tab" role="tab" data-tab="inbox" aria-selected="true">Inbox</button>
-	<button class="tab" role="tab" data-tab="scan" aria-selected="false">Scan receipt</button>
+	<button class="tab" role="tab" data-tab="scan" aria-selected="false">Scan</button>
 </nav>
 
 <section id="tab-scan" class="hidden" role="tabpanel">
+	<h2 style="margin-top:0">Scanner</h2>
+	<div id="scanner" class="panel small"><span class="muted">Looking for the scanner…</span></div>
+
+	<div id="camera-box" class="hidden">
+	<h2>Camera</h2>
 	<p class="muted small" style="margin-top:0">Photograph a receipt or bill. Several photos become the pages of one PDF, saved to the inbox, from where you can send it on or have the AI read it.</p>
 	<div class="scan-actions">
 		<label class="btn primary big">Take a photo<input id="scan-camera" type="file" accept="image/*" capture="environment" class="visually-hidden"></label>
@@ -112,6 +117,14 @@
 			<button class="btn primary big" id="scan-upload">Save to inbox</button>
 		</div>
 	</div>
+	</div>
+
+	<h2>Upload files</h2>
+	<p class="muted small" style="margin-top:0">From your computer or phone: a scan made with your scanner's own app (a USB scanner, say), a statement you downloaded, any file.</p>
+	<div class="scan-actions">
+		<label class="btn big">Choose files<input id="upload-files" type="file" multiple class="visually-hidden"></label>
+	</div>
+	<p id="upload-msg" class="muted small"></p>
 </section>
 
 <section id="tab-inbox" role="tabpanel">
@@ -129,6 +142,8 @@
 	<button class="btn" id="get-ext">Get the browser extension</button>
 </div>
 
+<div id="mail" class="row small hidden" style="margin-top:0.5rem"></div>
+
 <div id="ext" class="panel hidden" style="margin-top:0.75rem">
 	<strong>Send to Ledger</strong>: a Chrome and Firefox extension that sends files from any website straight into this inbox (or to Auto sort), without saving them to your computer. Right-click a download link and choose <em>Send to Ledger…</em>, or drop a file on its toolbar button.
 	<div class="row" style="margin:0.6rem 0"><button class="btn primary" id="dl-ext">Download the extension (.zip)</button><span class="muted small" id="ext-msg"></span></div>
@@ -145,7 +160,7 @@
 		<tbody></tbody>
 	</table>
 </div>
-<p id="empty" class="muted hidden">Nothing here. Files you send from your browser with the Send to Ledger extension, or receipts you scan with your phone, arrive here.</p>
+<p id="empty" class="muted hidden">Nothing here. Files arrive here from the Send to Ledger browser extension, from email, and from the Scan tab (scanner, phone camera, upload).</p>
 </section>
 
 <div id="toast"></div>
@@ -261,7 +276,7 @@
 		$("counts").textContent = `${c.new || 0} in the inbox · ${c.sent || 0} sent · ${c.archived || 0} archived`;
 		$("empty").classList.toggle("hidden", files.length > 0);
 		$("files").classList.toggle("hidden", files.length === 0);
-		await Promise.all([checkAutosort(), checkAi(), checkTargets()]);
+		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail()]);
 		if ((targets || []).some((t) => t.accepts.includes("statement"))) await bankAccounts();
 		render();
 	}
@@ -281,12 +296,19 @@
 						openId === f.id && !(review && review.file_id === f.id) ? forwardPanel(f) : null,
 					),
 					el("td", { class: "num" }, size(Number(f.size_bytes))),
-					el("td", { class: "small" }, f.source_url ? el("span", { title: f.source_url }, new URL(f.source_url).host) : el("span", { class: "muted" }, "dropped file")),
+					el("td", { class: "small" }, fromCell(f)),
 					el("td", { class: "small" }, new Date(f.received_at).toLocaleString(), el("div", { class: "muted" }, f.received_by)),
 					el("td", {}, el("span", { class: `pill ${f.status}` }, f.status === "new" ? "In inbox" : f.status === "sent" ? "Sent" : "Archived")),
 				),
 			),
 		);
+	}
+
+	function fromCell(f) {
+		if (f.source_url) return el("span", { title: f.source_url }, new URL(f.source_url).host);
+		const what = { email: "email", scanner: "scanner", camera: "phone camera", upload: "uploaded" }[f.origin];
+		if (!what) return el("span", { class: "muted" }, "dropped file");
+		return el("span", { title: f.origin_detail || what }, what, f.origin_detail ? el("div", { class: "muted" }, f.origin_detail) : null);
 	}
 
 	const HANDOFF = { new: "Waiting for the module", accepted: "Being processed", done: "Done", rejected: "Rejected" };
@@ -315,7 +337,7 @@
 		if (kind && ai) {
 			const can = kind === "text" ? ai.configured : kind === "image" ? ai.reads_images : ai.reads_pdf || ai.reads_images;
 			if (!ai.configured && !ai.reads_images) aiHint = "To extract its transactions into a CSV with AI, an admin can set up an LLM connection under Settings → LLM API.";
-			else if (!ai.allowed) aiHint = "To extract its transactions into a CSV with AI, an admin can allow Downloads under Settings → LLM API.";
+			else if (!ai.allowed) aiHint = "To extract its transactions into a CSV with AI, an admin can allow Import under Settings → LLM API.";
 			else if (!can) aiHint = kind === "text" ? "There's no LLM connection for text under Settings → LLM API, so its transactions can't be extracted here." : "There's no LLM connection for images and documents under Settings → LLM API, so its transactions can't be extracted here.";
 			else opts.push(["extract", "Extract data: a CSV of its transactions, read by AI"]);
 		}
@@ -531,14 +553,13 @@
 		} catch (e) { $("ext-msg").textContent = ""; fail(e); }
 	};
 
-	// ------------------------------------------------------------- Scan receipt (phones and tablets): photos -> one PDF -> the inbox
+	// ------------------------------------------------------------- Camera (phones and tablets): photos -> one PDF -> the inbox
 	// The phone's camera is reached through a file input with capture: it works inside Ledger's frame without
 	// camera permissions. Photos are shrunk and put into a PDF in the browser, so the AI (Claude) and Auto
 	// sort can read them; nothing leaves the page except the upload to this inbox.
 	let parentQuery = new URLSearchParams();
 	try { parentQuery = new URLSearchParams(window.parent.location.search); } catch {}
 	const MOBILE = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-	const SCAN_TAB = MOBILE || parentQuery.get("tab") === "scan";
 	let pages = []; // [{ jpeg: Uint8Array, w, h, url }]
 
 	function showTab(name) {
@@ -546,6 +567,7 @@
 		$("tab-inbox").classList.toggle("hidden", name !== "inbox");
 		$("tab-scan").classList.toggle("hidden", name !== "scan");
 		if (name === "inbox") load().catch(fail);
+		if (name === "scan" && scanner === null) loadScanner();
 	}
 	for (const b of document.querySelectorAll(".tab")) b.onclick = () => showTab(b.dataset.tab);
 
@@ -612,8 +634,8 @@
 
 	const b64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
 	/** Uploads bytes to this inbox the way the extension does (in chunks) → the file. */
-	async function uploadBytes(name, type, bytes) {
-		const { id, chunk_size } = await api("/files", { method: "POST", body: JSON.stringify({ name, content_type: type, size: bytes.length }) });
+	async function uploadBytes(name, type, bytes, origin = "upload") {
+		const { id, chunk_size } = await api("/files", { method: "POST", body: JSON.stringify({ name, content_type: type, size: bytes.length, origin }) });
 		for (let i = 0, k = 0; i < bytes.length; i += chunk_size, k++) {
 			await api(`/files/${id}/chunks/${k}`, { method: "PUT", body: JSON.stringify({ data: b64(bytes.subarray(i, i + chunk_size)) }) });
 		}
@@ -656,7 +678,7 @@
 		btn.textContent = "Saving…";
 		try {
 			const pdf = jpegsToPdf(pages);
-			const f = await uploadBytes(name.slice(-255), "application/pdf", pdf);
+			const f = await uploadBytes(name.slice(-255), "application/pdf", pdf, "camera");
 			const extra = $("scan-note").value.trim();
 			await api(`/files/${f.id}`, { method: "PATCH", body: JSON.stringify({ note: `Scanned with a phone camera (${pages.length} page${pages.length === 1 ? "" : "s"})${extra ? `: ${extra}` : ""}`.slice(0, 1000) }) });
 			$("scan-clear").onclick();
@@ -667,9 +689,149 @@
 			setTimeout(() => document.getElementById(`file-${f.id}`)?.scrollIntoView({ block: "start" }), 300);
 		} catch (e) { fail(e); } finally { btn.disabled = false; btn.textContent = "Save to inbox"; }
 	};
-	if (SCAN_TAB) {
-		$("tabs").classList.remove("hidden");
-		if (MOBILE) $("get-ext").classList.add("hidden"); // the extension is for desktop browsers
+	if (MOBILE) {
+		$("camera-box").classList.remove("hidden");
+		$("get-ext").classList.add("hidden"); // the extension is for desktop browsers
+	}
+
+	// ------------------------------------------------------------- Upload files
+	$("upload-files").onchange = async (e) => {
+		const list = [...e.target.files];
+		e.target.value = "";
+		let last = null;
+		for (const [i, file] of list.entries()) {
+			$("upload-msg").textContent = `Uploading ${file.name} (${i + 1} of ${list.length})…`;
+			try {
+				last = await uploadBytes(file.name.replace(/[\u0000-\u001f/\\]/g, "-").slice(-255) || "file", file.type, new Uint8Array(await file.arrayBuffer()));
+			} catch (err) { fail(new Error(`${file.name}: ${err.message}`)); }
+		}
+		$("upload-msg").textContent = last ? `Uploaded ${list.length === 1 ? last.name : `${list.length} files`} to the inbox.` : "";
+		if (last) { $("filter").value = "new"; openId = list.length === 1 ? last.id : null; }
+	};
+
+	// ------------------------------------------------------------- Network scanner (eSCL / AirScan, through the Ledger server)
+	let scanner = null;
+	const SOURCE_LABEL = { Platen: "Glass", Feeder: "Document feeder" };
+	async function loadScanner() {
+		try { scanner = await api("/scanner"); } catch (e) { scanner = { configured: false, error: e.message }; }
+		drawScanner();
+	}
+	function drawScanner() {
+		const box = $("scanner");
+		const s = scanner;
+		if (!s.configured) {
+			box.replaceChildren(
+				el("div", {}, "No scanner is set up. A scanner or printer with AirScan (eSCL) on your network works: most HP, Canon, Epson, Brother and Xerox models from the last ten years."),
+				s.admin ? setupScanner() : el("div", { class: "muted", style: "margin-top:0.4rem" }, "An admin can set one up here."),
+			);
+			return;
+		}
+		if (!s.reachable) {
+			box.replaceChildren(
+				el("div", { class: "bad" }, `The scanner at ${s.url} isn't answering: ${s.error}`),
+				el("div", { class: "row", style: "margin-top:0.4rem" }, el("button", { class: "btn", onclick: loadScanner }, "Try again"), s.admin ? el("button", { class: "btn", onclick: () => { box.append(setupScanner()); } }, "Change scanner") : null),
+			);
+			return;
+		}
+		const source = el("select", {}, ...s.sources.map((x) => el("option", { value: x.id }, SOURCE_LABEL[x.id] || x.id)));
+		if (s.adf === "ScannerAdfLoaded" && s.sources.some((x) => x.id === "Feeder")) source.value = "Feeder";
+		const color = el("select", {}, el("option", { value: "color" }, "Colour"), el("option", { value: "gray" }, "Grey"));
+		const res = el("select", {});
+		const duplex = el("input", { type: "checkbox" });
+		const duplexLabel = el("label", { class: "inline" }, duplex, "Both sides");
+		const name = el("input", { type: "text", maxlength: "255", placeholder: "File name (optional)", style: "flex:1;min-width:10rem" });
+		const syncSource = () => {
+			const src = s.sources.find((x) => x.id === source.value);
+			const list = src.resolutions.length ? src.resolutions.filter((r) => r <= 600) : [150, 300];
+			res.replaceChildren(...list.map((r) => el("option", { value: String(r) }, `${r} dpi`)));
+			res.value = String(list.reduce((b, r) => (Math.abs(r - 300) < Math.abs(b - 300) ? r : b), list[0]));
+			duplexLabel.classList.toggle("hidden", !src.duplex);
+			color.querySelector('[value="gray"]').disabled = src.colorModes.length > 0 && !src.colorModes.includes("Grayscale8");
+		};
+		source.onchange = syncSource;
+		syncSource();
+		const msg = el("span", { class: "muted" });
+		const go = el("button", { class: "btn primary big", onclick: async () => {
+			go.disabled = true;
+			msg.textContent = "Starting…";
+			try {
+				let job = await api("/scans", { method: "POST", body: JSON.stringify({ source: source.value, color: color.value, resolution: Number(res.value), duplex: !duplexLabel.classList.contains("hidden") && duplex.checked, ...(name.value.trim() ? { name: name.value.trim() } : {}) }) });
+				while (job.status === "scanning") {
+					msg.textContent = job.pages ? `Scanning… ${job.pages} page${job.pages === 1 ? "" : "s"}` : "Scanning…";
+					await new Promise((r) => setTimeout(r, 1500));
+					job = await api(`/scans/${job.id}`);
+				}
+				if (job.status === "error") throw new Error(job.error);
+				msg.textContent = "";
+				name.value = "";
+				toast(`Scanned: ${job.file_name}${job.pages > 1 ? ` (${job.pages} pages)` : ""}.`);
+				$("filter").value = "new";
+				openId = job.file_id; // its Send panel: Auto sort, Extract data, another module
+				showTab("inbox");
+				setTimeout(() => document.getElementById(`file-${job.file_id}`)?.scrollIntoView({ block: "start" }), 300);
+			} catch (e) { msg.textContent = ""; fail(e); } finally { go.disabled = false; }
+		} }, "Scan");
+		box.replaceChildren(
+			el("div", {}, el("strong", {}, s.name), el("span", { class: "muted" }, ` · ${s.state === "Idle" || !s.state ? "ready" : s.state.toLowerCase()}${s.adf === "ScannerAdfLoaded" ? " · paper in the feeder" : ""}`)),
+			el("div", { class: "row", style: "margin-top:0.5rem" }, source, color, res, duplexLabel),
+			el("div", { class: "row", style: "margin-top:0.5rem" }, name),
+			el("div", { class: "row", style: "margin-top:0.6rem" }, go, msg, el("span", { class: "spacer" }), s.admin ? el("button", { class: "btn", onclick: (e) => { e.target.replaceWith(setupScanner()); } }, "Change scanner") : null),
+		);
+	}
+	/** For admins: find scanners on the network, or type an address. */
+	function setupScanner() {
+		const list = el("div", { class: "found" });
+		const addr = el("input", { type: "text", placeholder: "or its address, e.g. 192.168.1.40", style: "flex:1;min-width:10rem" });
+		const use = async (url) => {
+			try {
+				scanner = await api("/scanner", { method: "POST", body: JSON.stringify({ url }) });
+				toast(url ? `Using ${scanner.name}.` : "Scanner removed.");
+				drawScanner();
+			} catch (e) { fail(e); }
+		};
+		const find = el("button", { class: "btn primary", onclick: async () => {
+			find.disabled = true;
+			list.replaceChildren(el("span", { class: "muted" }, "Looking on the network…"));
+			try {
+				const { data } = await api("/scanner/find", { method: "POST", body: "{}" });
+				list.replaceChildren(...(data.length ? data.map((d) => el("div", { class: "row", style: "margin-top:0.3rem" }, el("span", {}, d.name, el("span", { class: "muted" }, ` · ${d.url}`)), el("span", { class: "spacer" }), el("button", { class: "btn", onclick: () => use(d.url) }, "Use"))) : [el("span", { class: "muted" }, "None found. The Ledger server must be on the same network as the scanner (a container may need host networking). Type its address instead: it's on the scanner's screen or network settings page.")]));
+			} catch (e) { list.replaceChildren(); fail(e); } finally { find.disabled = false; }
+		} }, "Find scanners");
+		return el("div", { style: "margin-top:0.6rem" },
+			el("div", { class: "row" }, find, addr, el("button", { class: "btn", onclick: () => use(addr.value) }, "Use this address"), scanner?.configured ? el("button", { class: "btn danger", onclick: () => use("") }, "Remove") : null),
+			list,
+		);
+	}
+
+	// ------------------------------------------------------------- Email (Settings → Import)
+	async function loadMail() {
+		let m;
+		try { m = await api("/mail"); } catch { return; }
+		const box = $("mail");
+		if (m.setting === "off") return box.classList.add("hidden");
+		box.classList.remove("hidden");
+		const st = m.state || {};
+		const ago = (iso) => { const min = Math.round((Date.now() - Date.parse(iso)) / 60000); return min < 1 ? "just now" : min < 60 ? `${min} min ago` : min < 1440 ? `${Math.round(min / 60)} h ago` : new Date(iso).toLocaleDateString(); };
+		const r = st.result || {};
+		const got = (r.files || 0) + (r.emails_saved || 0);
+		const line = m.missing
+			? el("span", { class: "muted" }, `Email: ${m.missing}.`)
+			: st.error
+				? el("span", { class: "bad" }, `Email check failed ${ago(st.last_check_at)}: ${st.error}`)
+				: el("span", { class: "muted" }, st.last_check_at ? `Email (${m.source === "gmail" ? "Gmail" : "IMAP"}) checked ${ago(st.last_check_at)}${got ? ` · ${got} new file${got === 1 ? "" : "s"}` : ""}${m.interval ? `, every ${m.interval} min` : ""}.` : `Email (${m.source === "gmail" ? "Gmail" : "IMAP"}) not checked yet.`);
+		const btn = el("button", { class: "btn", onclick: async () => {
+			btn.disabled = true;
+			btn.textContent = "Checking…";
+			try {
+				const res = await api("/mail/check", { method: "POST", body: "{}" });
+				if (res.error) throw new Error(res.error);
+				const n = (res.files || 0) + (res.emails_saved || 0);
+				toast(res.skipped ? `Email: ${res.skipped}.` : n ? `${n} new file${n === 1 ? "" : "s"} from email.` : `No new bills in email (${res.looked_at} looked at).`);
+				$("filter").value = "new";
+				await load();
+			} catch (e) { fail(e); await loadMail(); }
+		} }, "Check email now");
+		box.replaceChildren(line, m.missing ? null : btn);
 	}
 
 	// ------------------------------------------------------------- start (?file= from Ledger's search bar, ?tab=scan)
@@ -679,7 +841,7 @@
 			$("filter").value = "all";
 			openId = Number(fileId);
 		}
-		if (SCAN_TAB && parentQuery.get("tab") === "scan" && !openId) return showTab("scan");
+		if (parentQuery.get("tab") === "scan" && !openId) return showTab("scan");
 		await load();
 		if (openId) document.getElementById(`file-${openId}`)?.scrollIntoView({ block: "center" });
 	})().catch(fail);

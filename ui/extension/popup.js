@@ -1,5 +1,5 @@
 // Send to Ledger: the popup (also opened as a window after "Send to Ledger…" on a link).
-// Destinations: the Downloads inbox (always), Auto sort statement/bill (when that module is
+// Destinations: the Import inbox (always), Auto sort statement/bill (when that module is
 // installed), and Ledger's CSV files.
 const $ = (id) => document.getElementById(id);
 const send = (msg) => chrome.runtime.sendMessage(msg).then((r) => {
@@ -142,7 +142,7 @@ $("form").onsubmit = async (e) => {
 		if (dest === "inbox") {
 			const r = await send({ type: "inbox", file });
 			const dup = r.duplicate_of ? ` The same file arrived before (${r.duplicate_of.name}).` : "";
-			show([`Sent to the Downloads inbox.${dup} `, link("Open it in Ledger", () => openLedger(`/apps/downloads?file=${r.id}`))], "ok");
+			show([`Sent to the Import inbox.${dup} `, link("Open it in Ledger", () => openLedger(`/apps/downloads?file=${r.id}`))], "ok");
 		} else if (dest === "statement") {
 			if (!STATEMENT_RE.test(file.name)) throw new Error("Statements must be CSV, OFX, QFX or QBO files.");
 			const code = $("account").value;

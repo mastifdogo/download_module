@@ -93,7 +93,7 @@ leave pushing it to them. The module must work without that change.
 3. Ledger installs it on its update schedule or with "Update modules now"
    (Settings → Modules).
 
-## This module: Downloads (`id: downloads`, schema `mod_downloads`)
+## This module: Import (`id: downloads`, kept from its old name Downloads; schema `mod_downloads`)
 
 An inbox for files sent from the browser, plus the Send to Ledger extension
 that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
@@ -128,8 +128,21 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   optional: detect it (404 on its routes) and hide those options. Once Auto
   sort accepts files through `ctx.files` (it's listed by `/targets`), the page
   uses that instead and hides its direct options.
-- **Scan receipt** tab (`ui/index.html`, shown on touch devices or with
-  `?tab=scan` on Ledger's URL): photos come from `<input type="file"
+- **Email** (`lib/mail.mjs`, from Auto sort's mail check; `lib/imap.mjs` and
+  `lib/mime.mjs` are the same files): Gmail through `ctx.gmail` or IMAP;
+  documents of keyword-matching emails become inbox files (`saveFile`,
+  `origin: "email"`), bills without attachments `.eml`; `mail_seen` keeps
+  each message once, `state` the last check. A minute timer loops
+  `ctx.orgs.forEach`; "auto" reads Gmail only in organization 1. No AI.
+- **Scanner** (`lib/escl.mjs`): eSCL over node:http/https from the server
+  (scanners use self-signed certs), only to local addresses (resolved once,
+  checked, then connected to; the job URL must stay on the same host).
+  Admins set `scanner_url` (settings) via `POST /scanner` or mDNS
+  `POST /scanner/find`. `POST /scans` runs the job in the background (in
+  the request's organization) and the page polls `GET /scans/:id`; JPEG
+  pages become a PDF (`lib/pdf.mjs`). Tests use a fake eSCL server.
+- **Scan** tab (`ui/index.html`, every device): Scanner, Camera (touch
+  devices only), Upload files. Camera photos come from `<input type="file"
   capture="environment">` (works inside Ledger's iframe without camera
   permissions, unlike `getUserMedia`), are shrunk on a canvas to JPEG, and
   `jpegsToPdf` writes them as pages of one PDF (DCTDecode, no library). It

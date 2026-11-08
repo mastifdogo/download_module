@@ -1,13 +1,13 @@
 {
   "id": "downloads",
-  "name": "Downloads",
-  "version": "0.3.0",
-  "description": "An inbox in Ledger for files sent from your browser with the Send to Ledger extension (included): bank statements, bills, CSVs. Forward them to the Auto sort module or Ledger's CSV import, download, archive or delete them.",
+  "name": "Import",
+  "version": "0.4.0",
+  "description": "Import files into Ledger: from your browser (the Send to Ledger extension, included), from email (Ledger's Gmail or IMAP), from a network scanner, from a phone's camera, or uploaded. Check them, read them with AI (you approve what it found), and send them on to Auto sort, other modules or Ledger's CSV import.",
   "ledger": ">=0.11.0",
   "server": "server.mjs",
   "ui": "ui",
   "nav": {
-    "label": "Downloads",
+    "label": "Import",
     "icon": {
       "path": "M12 3v11 M7.5 9.5L12 14l4.5-4.5 M4 15v3.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V15"
     }
@@ -31,6 +31,109 @@
         "max": 3650,
         "default": 0,
         "help": "0 keeps them until you delete them. Files waiting in the inbox are never deleted automatically."
+      },
+      {
+        "key": "mail_source",
+        "label": "Read email from",
+        "type": "select",
+        "default": "auto",
+        "options": [
+          {
+            "value": "auto",
+            "label": "Gmail in the main books; nothing in other organizations"
+          },
+          {
+            "value": "gmail",
+            "label": "Gmail (Ledger's connected account)"
+          },
+          {
+            "value": "imap",
+            "label": "Another provider (IMAP)"
+          },
+          {
+            "value": "off",
+            "label": "Don't read email"
+          }
+        ],
+        "help": "Set per organization. Gmail needs Import allowed to read mail under Settings → Gmail. If the Auto sort module reads the same mailbox for bills, turn its email off (Settings → Auto sort) and send the files from here instead."
+      },
+      {
+        "key": "mail_interval",
+        "label": "Check email every (minutes)",
+        "type": "number",
+        "min": 0,
+        "max": 10080,
+        "default": 60,
+        "help": "0 turns scheduled checks off; Check email now on the Import page always works."
+      },
+      {
+        "key": "gmail_query",
+        "label": "Gmail search",
+        "type": "text",
+        "default": "",
+        "help": "Optional, e.g. label:bills. Empty: any of the keywords below."
+      },
+      {
+        "key": "mail_keywords",
+        "label": "Keywords",
+        "type": "textarea",
+        "default": "invoice, bill, statement, amount due, balance due, payment due, due date, receipt, pre-authorized, autopay, facture",
+        "help": "Comma-separated. Only emails containing one of these are imported. Empty: every email the search finds."
+      },
+      {
+        "key": "mail_lookback_days",
+        "label": "First check looks back (days)",
+        "type": "number",
+        "min": 1,
+        "max": 365,
+        "default": 30
+      },
+      {
+        "key": "mail_save_body",
+        "label": "Save matching emails without attachments as .eml files",
+        "type": "boolean",
+        "default": true,
+        "help": "For bills sent as the email itself; Auto sort reads .eml bills."
+      },
+      {
+        "key": "imap_host",
+        "label": "IMAP server",
+        "type": "text",
+        "default": "",
+        "help": "Only for IMAP, e.g. imap.fastmail.com, outlook.office365.com, imap.mail.me.com, or 127.0.0.1 for Proton Bridge."
+      },
+      {
+        "key": "imap_port",
+        "label": "IMAP port",
+        "type": "number",
+        "min": 1,
+        "max": 65535,
+        "default": 993
+      },
+      {
+        "key": "imap_user",
+        "label": "IMAP user name",
+        "type": "text",
+        "default": ""
+      },
+      {
+        "key": "imap_password",
+        "label": "IMAP password",
+        "type": "secret",
+        "help": "Usually an app password."
+      },
+      {
+        "key": "imap_folder",
+        "label": "IMAP folder",
+        "type": "text",
+        "default": "INBOX"
+      },
+      {
+        "key": "scanner_url",
+        "label": "Network scanner",
+        "type": "text",
+        "default": "",
+        "help": "Easiest from the Scan tab (Find scanners). Or its address, e.g. 192.168.1.40 or http://scanner.local/eSCL: a scanner or printer with AirScan / eSCL on your local network."
       }
     ]
   }

@@ -1,5 +1,5 @@
 // Send to Ledger: background script (a service worker in Chrome, an event page in Firefox).
-// Part of the Downloads module for Ledger (mastifdogo/download_module): files go to its inbox
+// Part of the Import module for Ledger (mastifdogo/download_module): files go to its inbox
 // by default, or straight to the Auto sort module or Ledger's CSV files.
 //
 // Ledger only accepts requests from its own pages: its login cookie is
@@ -9,7 +9,7 @@
 // exactly like Ledger's page, with your existing login. The extension stores
 // no password, only Ledger's address.
 
-const INBOX = "downloads"; // the Downloads module (this extension's home)
+const INBOX = "downloads"; // the Import module (id "downloads", this extension's home)
 const AUTOSORT = "categorizer"; // the Auto sort module, if installed
 
 async function settings() {
@@ -74,7 +74,7 @@ async function callInPage(req) {
 }
 
 /**
- * Runs in the Ledger page: uploads a file to the Downloads inbox in chunks (each request stays
+ * Runs in the Ledger page: uploads a file to the Import inbox in chunks (each request stays
  * under Ledger's 1 MiB limit). file: { name, type, base64, size, from }. Returns { status, body }.
  */
 async function uploadToInboxInPage(file) {
@@ -122,7 +122,7 @@ async function ledger(req) {
 		const out = res?.result ?? { status: 0, body: null };
 		const path = req.path ?? `/api/v1/m/${INBOX}/`;
 		if (out.status === 401) throw Object.assign(new Error("You're not logged in to Ledger in this browser. Log in, then try again."), { code: "login" });
-		if (out.status === 404 && path.includes(`/m/${INBOX}/`)) throw new Error("The Downloads module isn't installed or running in this Ledger (Settings → Modules: mastifdogo/download_module).");
+		if (out.status === 404 && path.includes(`/m/${INBOX}/`)) throw new Error("The Import module isn't installed or running in this Ledger (Settings → Modules: mastifdogo/download_module).");
 		if (out.status === 404 && path.includes(`/m/${AUTOSORT}/`)) throw Object.assign(new Error("The Auto sort module isn't installed in this Ledger."), { code: "no-autosort" });
 		if (out.status < 200 || out.status >= 300) {
 			const e = out.body?.error;

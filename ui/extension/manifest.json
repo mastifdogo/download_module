@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Send to Ledger",
-  "version": "0.1.0",
-  "description": "Send files from your browser straight to your Ledger server: the Downloads module's inbox, or statements and bills to the Auto sort module. Nothing is saved to your computer first.",
+  "version": "0.1.1",
+  "description": "Send files from your browser straight to your Ledger server: the Import module's inbox, or statements and bills to the Auto sort module. Nothing is saved to your computer first.",
   "icons": {
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"

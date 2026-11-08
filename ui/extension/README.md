@@ -1,6 +1,6 @@
 # Send to Ledger: browser extension
 
-Part of the [Downloads module](../../README.md) for Ledger. It sends files from your browser
+Part of the [Import module](../../README.md) for Ledger. It sends files from your browser
 straight to your Ledger server, without saving them to your computer first. Works in **Chrome**
 (and Edge, Brave, other Chromium browsers) and **Firefox** 128 or newer.
 
@@ -9,7 +9,7 @@ straight to your Ledger server, without saving them to your computer first. Work
   where it goes.
 - **Toolbar button:** drop a file you already have (or choose one).
 - **Destinations:**
-  - **Downloads inbox** (the default): any file, up to the module's size limit (25 MB unless
+  - **Import inbox** (the default): any file, up to the module's size limit (25 MB unless
     changed). Larger files are sent in pieces.
   - **Auto sort** (if that module is installed): statements (CSV, OFX, QFX, QBO) are staged for
     review with an account; bills (PDF, EML) go to its Bills tab.
@@ -19,7 +19,7 @@ straight to your Ledger server, without saving them to your computer first. Work
 
 ## Install
 
-The easiest way is the **Get the browser extension** button on the Downloads page in Ledger,
+The easiest way is the **Get the browser extension** button on the Import page in Ledger,
 which downloads this folder as a zip. Or take `ui/extension/` from this repository.
 
 **Chrome, Edge, Brave**
