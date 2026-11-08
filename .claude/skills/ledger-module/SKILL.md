@@ -42,7 +42,7 @@ feature the module uses (the context file says which version added what;
   `ctx.ledger.createJournalEntry(entry, req.user)`.
 - AI goes through `ctx.llm` and Gmail through `ctx.gmail` (Ledger ≥ 0.10.0):
   no API keys, OAuth, IMAP or Apps Script bridges of the module's own for
-  those. The admin allows the module under Settings → AI / Gmail.
+  those. The admin allows the module under Settings → LLM API / Gmail.
 - Files for other modules go through `ctx.files` (Ledger ≥ 0.11.0), never
   another module's tables: pick receivers from `ctx.files.targets(kind)`.
 - Organizations (Ledger ≥ 0.11.0): each organization's books and this
@@ -111,7 +111,9 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   them); `sent_file_id` (migration 002) links the outbox entry so `GET /files`
   shows the receiver's status and result (`handoff`).
 - `POST /files/:id/extract` reads a non-CSV file (PDF when the provider
-  reads PDFs, or text) with `ctx.llm.json` into a **pending** row of
+  reads PDFs, a photo or a scanned PDF's JPEG pages (`pdfJpegs`) as `images`
+  when `ctx.llm.status().images.configured` (Ledger ≥ 0.11.2, feature-detected
+  so 0.11.0–0.11.1 still work), or text) with `ctx.llm.json` into a **pending** row of
   `extractions` (migration 003), and nothing else. The page shows the rows
   for review; `POST /extractions/:id/approve {rows?}` (the person's edits,
   validated strictly) creates the CSV and marks the original sent in one

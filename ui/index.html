@@ -232,20 +232,22 @@
 		return out;
 	}
 
-	// ------------------------------------------------------------- AI extraction (Settings → AI)
-	let ai = null; // { configured, allowed, reads_pdf, model }
+	// ------------------------------------------------------------- AI extraction (Settings → LLM API)
+	let ai = null; // { configured, allowed, reads_pdf, reads_images, model }
+	const IMAGE_RE = /\.(jpe?g|png|gif|webp)$/i;
 	const TEXT_RE = /\.(txt|text|ofx|qfx|qbo|html?|xml|json|tsv|eml|md|prn)$/i;
 	/** "pdf" or "text" when the AI could extract data from the file (it isn't a CSV already), else null. */
 	function extractable(f) {
 		const type = (f.content_type || "").toLowerCase();
 		if (/\.csv$/i.test(f.name) || type.startsWith("text/csv")) return null;
 		if (/\.pdf$/i.test(f.name) || type.startsWith("application/pdf")) return "pdf";
+		if (IMAGE_RE.test(f.name) || /^image\/(jpeg|png|gif|webp)/.test(type)) return "image";
 		if (TEXT_RE.test(f.name) || /^(text\/|application\/(json|xml)|message\/rfc822)/.test(type)) return "text";
 		return null;
 	}
 	async function checkAi() {
 		if (ai !== null) return ai;
-		try { ai = await api("/ai"); } catch { ai = { configured: false, allowed: false, reads_pdf: false }; }
+		try { ai = await api("/ai"); } catch { ai = { configured: false, allowed: false, reads_pdf: false, reads_images: false }; }
 		return ai;
 	}
 
@@ -311,9 +313,10 @@
 		const kind = extractable(f);
 		let aiHint = null;
 		if (kind && ai) {
-			if (!ai.configured) aiHint = "To extract its transactions into a CSV with AI, an admin can set up an AI provider under Settings → AI.";
-			else if (!ai.allowed) aiHint = "To extract its transactions into a CSV with AI, an admin can allow Downloads under Settings → AI.";
-			else if (kind === "pdf" && !ai.reads_pdf) aiHint = "The AI provider under Settings → AI can't read PDFs (only Claude can), so its transactions can't be extracted here.";
+			const can = kind === "text" ? ai.configured : kind === "image" ? ai.reads_images : ai.reads_pdf || ai.reads_images;
+			if (!ai.configured && !ai.reads_images) aiHint = "To extract its transactions into a CSV with AI, an admin can set up an LLM connection under Settings → LLM API.";
+			else if (!ai.allowed) aiHint = "To extract its transactions into a CSV with AI, an admin can allow Downloads under Settings → LLM API.";
+			else if (!can) aiHint = kind === "text" ? "There's no LLM connection for text under Settings → LLM API, so its transactions can't be extracted here." : "There's no LLM connection for images and documents under Settings → LLM API, so its transactions can't be extracted here.";
 			else opts.push(["extract", "Extract data: a CSV of its transactions, read by AI"]);
 		}
 		if (opts.length === 0) {

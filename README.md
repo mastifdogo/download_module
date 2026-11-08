@@ -21,13 +21,16 @@ A module for [Ledger (Bookeeping)](https://github.com/mastifdogo/Bookeeping). It
     statement (with the bank or card account it's for), bill, receipt or transaction list, with the
     receiving module's result shown on the file;
   - saved to Ledger's CSV files for journal import;
-  - run through **Extract data** (for files that aren't a CSV already: PDFs and text files such as TXT, OFX,
-    QFX, HTML, XML, JSON, EML): the AI set up under Settings → AI reads its transactions, and you
-    **check them before anything happens**: correct, remove or add rows, then *Approve* (a CSV,
+  - run through **Extract data** (for files that aren't a CSV already: PDFs, photos (JPEG, PNG, GIF,
+    WebP) and text files such as TXT, OFX, QFX, HTML, XML, JSON, EML): the LLM set up under
+    Settings → LLM API reads its transactions, and you **check them before anything happens**: correct, remove or add rows, then *Approve* (a CSV,
     `Date,Description,Amount,Balance` with money out negative, lands in the inbox ready to send on,
     and the original moves to *Sent*) or *Reject* (nothing is created). A dashboard to-do points to
-    extractions waiting for review. PDFs need Claude as the provider; Ollama and OpenAI-compatible
-    servers read text files only;
+    extractions waiting for review. Text files go to the LLM connection for text; photos and PDFs to
+    the connection for images and documents (Ledger 0.11.2 can have one of each, e.g. a local vision
+    model). Claude reads any PDF; another vision model reads scanned PDFs (such as *Scan receipt*
+    makes), whose pages are sent as pictures. On Ledger 0.11.0–0.11.1 photos can't be read and PDFs
+    need Claude;
   - downloaded, archived or deleted.
 
   The extension can also send statements and bills straight to Auto sort.
@@ -56,7 +59,7 @@ files.
 **Organizations:** each organization in Ledger has its own Downloads inbox. The extension sends to
 the organization you're working in in Ledger at that moment.
 
-**Extract data** needs an AI provider: an admin chooses one under **Settings → AI** and ticks
+**Extract data** needs an AI provider: an admin chooses one under **Settings → LLM API** and ticks
 **Downloads** there. Without it the option is hidden and the Send panel says what to set up.
 
 ## How files get here
@@ -72,7 +75,7 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `GET` | `/files?status=new\|sent\|archived\|all` | the inbox, with counts |
 | `GET` | `/files/:id`, `/files/:id/content` | one file; its bytes (base64) |
 | `POST` | `/files/:id/sent` | `{to, link?}`: record where the page forwarded it |
-| `GET` | `/ai` | `{configured, allowed, reads_pdf, model}`: whether Extract data can be offered |
+| `GET` | `/ai` | `{configured, allowed, reads_pdf, reads_images, model}`: whether Extract data can be offered, per kind of file |
 | `POST` | `/files/:id/extract` | `{instructions?}`: the AI reads a PDF or text file → a **pending** extraction `{id, file_id, rows: [{date, description, amount, balance}], model, currency}`; nothing else changes |
 | `GET` | `/extractions?status=pending\|approved\|rejected\|all`, `/extractions/:id` | extractions waiting for review (the list without rows) |
 | `POST` | `/extractions/:id/approve` | `{rows?}` (the person's corrected rows; every row needs a real date and amount): creates the CSV in the inbox, marks the original sent → the CSV file |
@@ -87,7 +90,7 @@ Uploads that never complete are removed after a day.
 
 Files are stored in Ledger's database (and its backups) until you delete them, or until the days
 set under Settings → Downloads have passed. The extension sends nothing anywhere but your Ledger.
-**Extract data** sends that one file's content to the AI provider chosen under Settings → AI
+**Extract data** sends that one file's content to the AI provider chosen under Settings → LLM API
 (Anthropic's API for Claude, or your own Ollama / OpenAI-compatible server), only when you press
 *Extract*.
 
@@ -112,6 +115,9 @@ changed), tag `v<version>`, and create a GitHub Release from the tag.
 
 ## Changes
 
+- **0.3.0:** For Ledger 0.11.2: *Extract data* reads photos, and scanned PDFs with any vision
+  model (their pages go as pictures), through the LLM connection for images; texts say
+  *Settings → LLM API*.
 - **0.2.0:** A *Scan receipt* tab on phones and tablets: photograph receipts or bills with the
   camera; the photos become one PDF in the inbox.
 - **0.1.0:** What the AI extracts is a suggestion you check first: review, correct and approve the
@@ -123,5 +129,5 @@ changed), tag `v<version>`, and create a GitHub Release from the tag.
   them; each organization has its own inbox, and clean-up and the dashboard notice run in every
   organization.
 - **0.0.1:** Extract data: read a download that isn't a CSV (a PDF or text file) with the AI set
-  under Settings → AI into a CSV of its transactions.
+  under Settings → LLM API into a CSV of its transactions.
 - **0.0.0:** First release: the inbox and the Send to Ledger extension.

@@ -61,13 +61,50 @@ const EXTRACT_SCHEMA = {
 	},
 };
 
-/** "csv", "pdf", "text", or null when the file can't be read. */
+const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp)$/i;
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024; // per picture, what LLM APIs take
+const IMAGE_MAX_COUNT = 20; // ctx.llm takes at most 20 images per request
+
+/** "csv", "pdf", "image", "text", or null when the file can't be read. */
 function extractKind(f) {
 	const type = String(f.content_type || "").toLowerCase();
 	if (/\.csv$/i.test(f.name) || /^text\/csv\b/.test(type)) return "csv";
 	if (/\.pdf$/i.test(f.name) || /^application\/pdf\b/.test(type)) return "pdf";
+	if (IMAGE_EXT_RE.test(f.name) || /^image\/(jpeg|png|gif|webp)\b/.test(type)) return "image";
 	if (TEXT_EXT_RE.test(f.name) || TEXT_TYPE_RE.test(type)) return "text";
 	return null;
+}
+
+/** The picture's media type from its first bytes (what ctx.llm accepts), or null. */
+function imageType(b) {
+	if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+	if (b[0] === 0x89 && b.subarray(1, 4).toString("latin1") === "PNG") return "image/png";
+	if (b.subarray(0, 4).toString("latin1") === "GIF8") return "image/gif";
+	if (b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
+	return null;
+}
+
+/**
+ * The JPEG photos inside a PDF (DCTDecode image streams): a scanned receipt, such as the
+ * Scan receipt tab makes, as pictures for an image model that can't read PDFs.
+ */
+function pdfJpegs(bytes) {
+	const text = bytes.toString("latin1"); // 1 char = 1 byte, so offsets match
+	const out = [];
+	const re = /<<((?:[^<>]|<<(?:[^<>]|<<[^<>]*>>)*>>)*)>>\s*stream\r?\n/g;
+	let m;
+	while ((m = re.exec(text)) && out.length <= IMAGE_MAX_COUNT) {
+		const dict = m[1];
+		if (!/\/Subtype\s*\/Image\b/.test(dict) || !/\/DCTDecode\b/.test(dict) || /\/Filter\s*\[[^\]]*\/\w+[^\]]*\/\w+/.test(dict)) continue;
+		const start = m.index + m[0].length;
+		const direct = /\/Length\s+(\d+)(?!\s+\d+\s+R)/.exec(dict);
+		const end = direct ? start + Number(direct[1]) : text.indexOf("endstream", start);
+		if (end <= start || end > bytes.length) continue;
+		const jpeg = bytes.subarray(start, end);
+		if (imageType(jpeg) === "image/jpeg") out.push(jpeg);
+		re.lastIndex = end;
+	}
+	return out;
 }
 
 /** The file as text for the AI (HTML reduced to its text), or null if it's binary. */
@@ -392,14 +429,15 @@ export default async function register(ctx) {
 
 	// ---------------------------------------------------------------------
 	// Extract data: a file that isn't a CSV (a PDF or text statement) is read
-	// by the AI set under Settings → AI (ctx.llm), and its transactions become
+	// by the AI set under Settings → LLM API (ctx.llm), and its transactions become
 	// a new CSV in the inbox, ready to send to Auto sort or Ledger's CSV files.
 	// ---------------------------------------------------------------------
 
 	// GET /ai: whether extraction can be offered, for the page.
 	ctx.route("GET", "/ai", async () => {
 		const st = await ctx.llm.status();
-		return { configured: !!st.configured, allowed: !!st.allowed, reads_pdf: !!st.readsPdf, model: st.model ?? null };
+		// images: Ledger >= 0.11.2 (a connection for pictures, maybe another model); absent before.
+		return { configured: !!st.configured, allowed: !!st.allowed, reads_pdf: !!st.readsPdf, reads_images: !!st.images?.configured, model: st.model ?? null };
 	});
 
 	// POST /files/:id/extract {instructions?} -> the new CSV file (status "new"); the original is marked sent.
@@ -410,13 +448,19 @@ export default async function register(ctx) {
 		if (extra !== undefined && (typeof extra !== "string" || extra.length > 1000)) throw bad("instructions must be text of at most 1000 characters");
 		const kind = extractKind(f);
 		if (kind === "csv") throw bad("this file is already a CSV; send it as it is");
-		if (!kind) throw bad("there's no way to extract data from this kind of file: only PDFs and text files (TXT, OFX, QFX, HTML, XML, JSON, TSV, EML) can be read");
+		if (!kind) throw bad("there's no way to extract data from this kind of file: only PDFs, photos (JPEG, PNG, GIF, WebP) and text files (TXT, OFX, QFX, HTML, XML, JSON, TSV, EML) can be read");
 		if (Number(f.size_bytes) > EXTRACT_MAX_BYTES) throw new ctx.HttpError(413, `the file is larger than ${EXTRACT_MAX_BYTES / 1024 / 1024} MB, too large to extract from`);
 
 		const st = await ctx.llm.status();
-		if (!st.configured) throw new ctx.HttpError(409, "no AI provider is set up; an admin can choose one under Settings → AI");
-		if (!st.allowed) throw new ctx.HttpError(403, `${ctx.name} isn't allowed to use AI; an admin can allow it under Settings → AI`);
-		if (kind === "pdf" && !st.readsPdf) throw bad("the AI provider set under Settings → AI can't read PDFs (only Claude can); extract from a text file instead");
+		const readsImages = !!st.images?.configured; // Ledger >= 0.11.2
+		if (!st.allowed) throw new ctx.HttpError(403, `${ctx.name} isn't allowed to use the LLM API; an admin can allow it under Settings → LLM API`);
+		if (kind === "text" && !st.configured) throw new ctx.HttpError(409, "no LLM connection for text is set up; an admin can add one under Settings → LLM API");
+		if (kind === "image" && !readsImages) {
+			throw new ctx.HttpError(409, st.images ? "no LLM connection for images is set up; an admin can add one under Settings → LLM API" : "reading photos needs Ledger 0.11.2 or newer");
+		}
+		if (kind === "pdf" && !st.readsPdf && !readsImages) {
+			throw new ctx.HttpError(409, "reading PDFs needs an LLM connection for images (Claude reads any PDF; another vision model reads scanned ones) under Settings → LLM API");
+		}
 
 		const { rows: parts } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY idx`, [f.id]);
 		const bytes = Buffer.concat(parts.map((r) => r.data));
@@ -427,9 +471,23 @@ export default async function register(ctx) {
 			prompt: "",
 		};
 		const note = typeof extra === "string" && extra.trim() ? `\n\nThe user adds: ${extra.trim()}` : "";
-		if (kind === "pdf") {
+		if (kind === "pdf" && st.readsPdf) {
 			ask.documents = [{ media_type: "application/pdf", data: bytes.toString("base64"), name: f.name }];
 			ask.prompt = `Extract every transaction from the attached document "${f.name}".${note}`;
+		} else if (kind === "pdf") {
+			// The image model can't read PDFs: send the photos a scanned PDF is made of.
+			const jpegs = pdfJpegs(bytes);
+			if (jpegs.length === 0) throw bad("this PDF has no scanned pages the image model can read; reading other PDFs needs Claude as the LLM connection for images");
+			if (jpegs.length > IMAGE_MAX_COUNT) throw bad(`this PDF has more than ${IMAGE_MAX_COUNT} pages, too many to read at once`);
+			if (jpegs.some((j) => j.length > IMAGE_MAX_BYTES)) throw new ctx.HttpError(413, `a page of this PDF is larger than ${IMAGE_MAX_BYTES / 1024 / 1024} MB`);
+			ask.images = jpegs.map((j) => ({ media_type: "image/jpeg", data: j.toString("base64") }));
+			ask.prompt = `Extract every transaction from the attached ${jpegs.length === 1 ? "picture" : `${jpegs.length} pictures (the pages, in order)`} of "${f.name}".${note}`;
+		} else if (kind === "image") {
+			const type = imageType(bytes);
+			if (!type) throw bad("this file isn't a JPEG, PNG, GIF or WebP picture");
+			if (bytes.length > IMAGE_MAX_BYTES) throw new ctx.HttpError(413, `the picture is larger than ${IMAGE_MAX_BYTES / 1024 / 1024} MB; use the Scan receipt tab on a phone, which shrinks photos`);
+			ask.images = [{ media_type: type, data: bytes.toString("base64") }];
+			ask.prompt = `Extract every transaction from the attached picture "${f.name}".${note}`;
 		} else {
 			const text = readableText(bytes, f.name);
 			if (text === null) throw bad("this file isn't readable text");
