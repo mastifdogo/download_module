@@ -12,6 +12,11 @@ A module for [Ledger (Bookeeping)](https://github.com/mastifdogo/Bookeeping). It
   - sent on to the [Auto sort](https://github.com/mastifdogo/auto-sort_module) module, as a
     statement whose transactions you review and post, or as a bill or receipt;
   - saved to Ledger's CSV files for journal import;
+  - run through **Extract data** (for files that aren't a CSV already: PDFs and text files such as TXT, OFX,
+    QFX, HTML, XML, JSON, EML): the AI set up under Settings → AI reads its transactions into a new
+    CSV (`Date,Description,Amount,Balance`, money out negative) that lands in the inbox, ready to
+    send on; the original moves to *Sent*. PDFs need Claude as the provider; Ollama and
+    OpenAI-compatible servers read text files only. Check the numbers before posting them;
   - downloaded, archived or deleted.
 
   The extension can also send statements and bills straight to Auto sort.
@@ -37,6 +42,9 @@ Needs **Ledger 0.10.0 or newer**.
 Auto sort is optional: without it, the inbox still works, and so do downloading and Ledger's CSV
 files.
 
+**Extract data** needs an AI provider: an admin chooses one under **Settings → AI** and ticks
+**Downloads** there. Without it the option is hidden and the Send panel says what to set up.
+
 ## How files get here
 
 The extension uploads from a Ledger tab with your login (Ledger only accepts its own pages), in
@@ -50,6 +58,8 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `GET` | `/files?status=new\|sent\|archived\|all` | the inbox, with counts |
 | `GET` | `/files/:id`, `/files/:id/content` | one file; its bytes (base64) |
 | `POST` | `/files/:id/sent` | `{to, link?}`: record where the page forwarded it |
+| `GET` | `/ai` | `{configured, allowed, reads_pdf, model}`: whether Extract data can be offered |
+| `POST` | `/files/:id/extract` | `{instructions?}`: the AI reads a PDF or text file → the new CSV file (`transactions`, `model`); the original is marked sent |
 | `PATCH`/`DELETE` | `/files/:id` | `{status: "new"\|"archived", note?, name?}`; delete |
 
 Uploads that never complete are removed after a day.
@@ -58,12 +68,15 @@ Uploads that never complete are removed after a day.
 
 Files are stored in Ledger's database (and its backups) until you delete them, or until the days
 set under Settings → Downloads have passed. The extension sends nothing anywhere but your Ledger.
+**Extract data** sends that one file's content to the AI provider chosen under Settings → AI
+(Anthropic's API for Claude, or your own Ollama / OpenAI-compatible server), only when you press
+*Extract*.
 
 ## Layout
 
 ```
 ledger-module.json     manifest (settings, drawn download icon)
-server.mjs             upload in chunks, the inbox, clean-up, dashboard, search
+server.mjs             upload in chunks, the inbox, AI extraction to CSV, clean-up, dashboard, search
 migrations/            files and file_chunks (schema mod_downloads)
 ui/index.html          the Downloads page: inbox, forwarding, the extension download
 ui/extension/          the Send to Ledger browser extension (Manifest V3, Chrome and Firefox)

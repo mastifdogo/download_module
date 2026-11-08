@@ -145,6 +145,23 @@
 		return autosort;
 	}
 
+	// ------------------------------------------------------------- AI extraction (Settings → AI)
+	let ai = null; // { configured, allowed, reads_pdf, model }
+	const TEXT_RE = /\.(txt|text|ofx|qfx|qbo|html?|xml|json|tsv|eml|md|prn)$/i;
+	/** "pdf" or "text" when the AI could extract data from the file (it isn't a CSV already), else null. */
+	function extractable(f) {
+		const type = (f.content_type || "").toLowerCase();
+		if (/\.csv$/i.test(f.name) || type.startsWith("text/csv")) return null;
+		if (/\.pdf$/i.test(f.name) || type.startsWith("application/pdf")) return "pdf";
+		if (TEXT_RE.test(f.name) || /^(text\/|application\/(json|xml)|message\/rfc822)/.test(type)) return "text";
+		return null;
+	}
+	async function checkAi() {
+		if (ai !== null) return ai;
+		try { ai = await api("/ai"); } catch { ai = { configured: false, allowed: false, reads_pdf: false }; }
+		return ai;
+	}
+
 	// ------------------------------------------------------------- inbox
 	let files = [];
 	let openId = null;
@@ -155,7 +172,7 @@
 		$("counts").textContent = `${c.new || 0} in the inbox · ${c.sent || 0} sent · ${c.archived || 0} archived`;
 		$("empty").classList.toggle("hidden", files.length > 0);
 		$("files").classList.toggle("hidden", files.length === 0);
-		await checkAutosort();
+		await Promise.all([checkAutosort(), checkAi()]);
 		render();
 	}
 
@@ -197,12 +214,21 @@
 			if (BILL_RE.test(f.name)) opts.push(["bill", "Auto sort: bill or receipt"]);
 		}
 		if (/\.csv$/i.test(f.name)) opts.push(["ledger-file", "Ledger's CSV files (journal import)"]);
+		const kind = extractable(f);
+		let aiHint = null;
+		if (kind && ai) {
+			if (!ai.configured) aiHint = "To extract its transactions into a CSV with AI, an admin can set up an AI provider under Settings → AI.";
+			else if (!ai.allowed) aiHint = "To extract its transactions into a CSV with AI, an admin can allow Downloads under Settings → AI.";
+			else if (kind === "pdf" && !ai.reads_pdf) aiHint = "The AI provider under Settings → AI can't read PDFs (only Claude can), so its transactions can't be extracted here.";
+			else opts.push(["extract", "Extract data: a CSV of its transactions, read by AI"]);
+		}
 		if (opts.length === 0) {
 			box.append(
 				autosort === false && (STATEMENT_RE.test(f.name) || BILL_RE.test(f.name))
 					? "Install the Auto sort module (Settings → Modules: mastifdogo/auto-sort_module) to send statements and bills there. You can download the file meanwhile."
 					: "There's nowhere in Ledger to send this kind of file yet. Download it, or archive it.",
 			);
+			if (aiHint) box.append(el("div", { class: "muted", style: "margin-top:0.4rem" }, aiHint));
 			return box;
 		}
 		const dest = el("select", {}, ...opts.map(([v, t]) => el("option", { value: v }, t)));
@@ -210,16 +236,29 @@
 		const flip = el("input", { type: "checkbox" });
 		const stmt = el("div", { class: "row", style: "margin-top:0.4rem" }, account, el("label", { class: "inline" }, flip, "Purchases show as positive amounts (flip signs)"));
 		account.onchange = () => (flip.checked = autosort.accounts.find((a) => a.code === account.value)?.type === "liability" && /\.csv$/i.test(f.name));
-		const sync = () => stmt.classList.toggle("hidden", dest.value !== "statement");
+		const instructions = el("input", { type: "text", maxlength: "1000", placeholder: "Optional hints, e.g. “only the chequing account”", style: "flex:1;min-width:12rem" });
+		const ext = el("div", { style: "margin-top:0.4rem" },
+			el("div", { class: "row" }, instructions),
+			el("div", { class: "muted", style: "margin-top:0.3rem" }, "The new CSV (Date, Description, Amount, Balance) lands in the inbox, ready to send to Auto sort or Ledger's CSV files; this file moves to Sent. Check the numbers before posting them."),
+		);
+		const sync = () => {
+			stmt.classList.toggle("hidden", dest.value !== "statement");
+			ext.classList.toggle("hidden", dest.value !== "extract");
+			go.textContent = dest.value === "extract" ? "Extract" : "Send";
+		};
 		dest.onchange = sync;
-		sync();
 		const go = el("button", { class: "btn primary", onclick: async () => {
 			go.disabled = true;
+			const label = go.textContent;
+			if (dest.value === "extract") go.textContent = "Reading… (up to a few minutes)";
 			try {
-				await forward(f, dest.value, { account: account.value, flip: flip.checked });
-			} catch (e) { fail(e); } finally { go.disabled = false; }
+				if (dest.value === "extract") await extract(f, instructions.value);
+				else await forward(f, dest.value, { account: account.value, flip: flip.checked });
+			} catch (e) { fail(e); } finally { go.disabled = false; go.textContent = label; }
 		} }, "Send");
-		box.append(el("div", { class: "row" }, el("label", { class: "inline" }, "To", dest)), stmt, el("div", { style: "margin-top:0.5rem" }, go));
+		sync();
+		box.append(el("div", { class: "row" }, el("label", { class: "inline" }, "To", dest)), stmt, ext, el("div", { style: "margin-top:0.5rem" }, go));
+		if (aiHint) box.append(el("div", { class: "muted", style: "margin-top:0.4rem" }, aiHint));
 		return box;
 	}
 
@@ -251,6 +290,16 @@
 		openId = null;
 		toast(`Sent: ${to}.`);
 		await load();
+	}
+
+	async function extract(f, instructions) {
+		const body = instructions.trim() ? { instructions: instructions.trim() } : {};
+		const r = await api(`/files/${f.id}/extract`, { method: "POST", body: JSON.stringify(body) });
+		toast(`Extracted ${r.transactions} transaction${r.transactions === 1 ? "" : "s"} into ${r.name}.`);
+		$("filter").value = "new";
+		openId = r.id; // open it, ready to send on
+		await load();
+		document.getElementById(`file-${r.id}`)?.scrollIntoView({ block: "center" });
 	}
 
 	async function download(f) {
