@@ -90,3 +90,9 @@ extension for Firefox: `npx web-ext lint --source-dir ui/extension`.
 
 To release: bump `version` in `ledger-module.json` (and the extension's `manifest.json` if it
 changed), tag `v<version>`, and create a GitHub Release from the tag.
+
+## Changes
+
+- **0.0.1:** Extract data: read a download that isn't a CSV (a PDF or text file) with the AI set
+  under Settings → AI into a CSV of its transactions.
+- **0.0.0:** First release: the inbox and the Send to Ledger extension.
