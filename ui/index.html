@@ -41,6 +41,7 @@
 	.pill { display: inline-block; padding: 0 0.45rem; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 	.pill.new { background: var(--warn-bg); color: var(--warn); }
 	.pill.sent { background: var(--good-bg); color: var(--good); }
+	.bad { color: var(--bad); }
 	.pill.archived { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
 	.actions { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem; }
 	.forward { margin-top: 0.5rem; }
@@ -145,6 +146,38 @@
 		return autosort;
 	}
 
+	// ------------------------------------------------------------- other modules that take files (ctx.files, Ledger ≥ 0.11.0)
+	let targets = null; // [{ id, name, accepts }]
+	let accounts = null; // Ledger's bank and card accounts, for statements handed to a module
+	const KIND_LABEL = { statement: "statement", bill: "bill", receipt: "receipt", transaction: "transaction list" };
+	const KIND_FITS = {
+		statement: /\.(csv|ofx|qfx|qbo|pdf|txt)$/i,
+		transaction: /\.(csv|tsv|json|xml|ofx|qfx|qbo)$/i,
+		bill: /\.(pdf|eml|png|jpe?g|webp|heic|gif)$/i,
+		receipt: /\.(pdf|eml|png|jpe?g|webp|heic|gif)$/i,
+	};
+	async function checkTargets() {
+		if (targets !== null) return targets;
+		try { targets = (await api("/targets")).data; } catch { targets = []; }
+		return targets;
+	}
+	async function bankAccounts() {
+		if (autosort) return autosort.accounts;
+		if (accounts === null) {
+			try { accounts = (await call("/api/v1/accounts")).data.filter((a) => a.type === "asset" || a.type === "liability"); } catch { accounts = []; }
+		}
+		return accounts;
+	}
+	/** [value, label] choices for handing this file to another module. */
+	function moduleOptions(f) {
+		const out = [];
+		for (const t of targets || []) {
+			const fit = t.accepts.filter((k) => KIND_FITS[k]?.test(f.name));
+			for (const k of fit.length ? fit : t.accepts) out.push([`mod:${t.id}:${k}`, `${t.name}: ${KIND_LABEL[k] || k}`]);
+		}
+		return out;
+	}
+
 	// ------------------------------------------------------------- AI extraction (Settings → AI)
 	let ai = null; // { configured, allowed, reads_pdf, model }
 	const TEXT_RE = /\.(txt|text|ofx|qfx|qbo|html?|xml|json|tsv|eml|md|prn)$/i;
@@ -172,7 +205,8 @@
 		$("counts").textContent = `${c.new || 0} in the inbox · ${c.sent || 0} sent · ${c.archived || 0} archived`;
 		$("empty").classList.toggle("hidden", files.length > 0);
 		$("files").classList.toggle("hidden", files.length === 0);
-		await Promise.all([checkAutosort(), checkAi()]);
+		await Promise.all([checkAutosort(), checkAi(), checkTargets()]);
+		if ((targets || []).some((t) => t.accepts.includes("statement"))) await bankAccounts();
 		render();
 	}
 
@@ -184,6 +218,7 @@
 						el("div", { class: "name" }, f.name),
 						f.note ? el("div", { class: "muted small" }, f.note) : null,
 						f.status === "sent" ? el("div", { class: "small" }, "Sent to ", f.sent_link ? el("a", { href: "#", onclick: (e) => { e.preventDefault(); goLedger(f.sent_link); } }, f.sent_to) : f.sent_to, f.sent_by ? ` by ${f.sent_by}` : "") : null,
+						f.handoff ? el("div", { class: `small ${f.handoff.status === "rejected" ? "bad" : "muted"}` }, HANDOFF[f.handoff.status] || f.handoff.status, f.handoff.result ? `: ${f.handoff.result}` : "") : null,
 						actions(f),
 						openId === f.id ? forwardPanel(f) : null,
 					),
@@ -195,6 +230,8 @@
 			),
 		);
 	}
+
+	const HANDOFF = { new: "Waiting for the module", accepted: "Being processed", done: "Done", rejected: "Rejected" };
 
 	function actions(f) {
 		const b = (text, fn, cls = "btn") => el("button", { class: cls, onclick: fn }, text);
@@ -208,8 +245,9 @@
 
 	function forwardPanel(f) {
 		const box = el("div", { class: "panel forward small" });
-		const opts = [];
-		if (autosort) {
+		const opts = moduleOptions(f);
+		// Auto sort's own routes, until it takes files through ctx.files (then it's listed above instead).
+		if (autosort && !(targets || []).some((t) => t.id === "categorizer")) {
 			if (STATEMENT_RE.test(f.name)) opts.push(["statement", "Auto sort: statement (review and post its transactions)"]);
 			if (BILL_RE.test(f.name)) opts.push(["bill", "Auto sort: bill or receipt"]);
 		}
@@ -232,17 +270,22 @@
 			return box;
 		}
 		const dest = el("select", {}, ...opts.map(([v, t]) => el("option", { value: v }, t)));
-		const account = el("select", {}, el("option", { value: "" }, "Choose the bank or card account…"), ...(autosort ? autosort.accounts.map((a) => el("option", { value: a.code }, `${a.code} · ${a.name} (${a.type}, ${a.currency})`)) : []));
+		const acctList = autosort ? autosort.accounts : accounts || [];
+		const account = el("select", {}, el("option", { value: "" }, "Choose the bank or card account…"), ...acctList.map((a) => el("option", { value: a.code }, `${a.code} · ${a.name} (${a.type}, ${a.currency})`)));
+		const flipLabel = el("label", { class: "inline" });
 		const flip = el("input", { type: "checkbox" });
-		const stmt = el("div", { class: "row", style: "margin-top:0.4rem" }, account, el("label", { class: "inline" }, flip, "Purchases show as positive amounts (flip signs)"));
-		account.onchange = () => (flip.checked = autosort.accounts.find((a) => a.code === account.value)?.type === "liability" && /\.csv$/i.test(f.name));
+		flipLabel.append(flip, "Purchases show as positive amounts (flip signs)");
+		const stmt = el("div", { class: "row", style: "margin-top:0.4rem" }, account, flipLabel);
+		account.onchange = () => (flip.checked = acctList.find((a) => a.code === account.value)?.type === "liability" && /\.csv$/i.test(f.name));
 		const instructions = el("input", { type: "text", maxlength: "1000", placeholder: "Optional hints, e.g. “only the chequing account”", style: "flex:1;min-width:12rem" });
 		const ext = el("div", { style: "margin-top:0.4rem" },
 			el("div", { class: "row" }, instructions),
 			el("div", { class: "muted", style: "margin-top:0.3rem" }, "The new CSV (Date, Description, Amount, Balance) lands in the inbox, ready to send to Auto sort or Ledger's CSV files; this file moves to Sent. Check the numbers before posting them."),
 		);
 		const sync = () => {
-			stmt.classList.toggle("hidden", dest.value !== "statement");
+			const modStmt = /^mod:[^:]+:statement$/.test(dest.value);
+			stmt.classList.toggle("hidden", dest.value !== "statement" && !modStmt);
+			flipLabel.classList.toggle("hidden", modStmt);
 			ext.classList.toggle("hidden", dest.value !== "extract");
 			go.textContent = dest.value === "extract" ? "Extract" : "Send";
 		};
@@ -253,6 +296,7 @@
 			if (dest.value === "extract") go.textContent = "Reading… (up to a few minutes)";
 			try {
 				if (dest.value === "extract") await extract(f, instructions.value);
+				else if (dest.value.startsWith("mod:")) await handoff(f, dest.value, account.value);
 				else await forward(f, dest.value, { account: account.value, flip: flip.checked });
 			} catch (e) { fail(e); } finally { go.disabled = false; go.textContent = label; }
 		} }, "Send");
@@ -289,6 +333,14 @@
 		await api(`/files/${f.id}/sent`, { method: "POST", body: JSON.stringify({ to, link }) });
 		openId = null;
 		toast(`Sent: ${to}.`);
+		await load();
+	}
+
+	async function handoff(f, value, account) {
+		const [, to, kind] = value.split(":");
+		const r = await api(`/files/${f.id}/handoff`, { method: "POST", body: JSON.stringify({ to, kind, ...(kind === "statement" && account ? { account_code: account } : {}) }) });
+		openId = null;
+		toast(`Sent: ${r.sent_to}.`);
 		await load();
 	}
 

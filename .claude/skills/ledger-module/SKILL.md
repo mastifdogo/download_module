@@ -20,8 +20,8 @@ The API reference and the full workflow live in the Ledger repository.
   (`scripts/check.sh` does this for you).
 - Read **`<ledger>/docs/MODULE_LLM_CONTEXT.md`** in full before changing
   anything: manifest, `ctx` API and return shapes, `ctx.settings`,
-  `ctx.dashboard`, `ctx.llm`, `ctx.gmail`, `ctx.search`, roles, migrations,
-  UI and security rules.
+  `ctx.dashboard`, `ctx.llm`, `ctx.gmail`, `ctx.search`, `ctx.files`,
+  `ctx.orgs`, roles, migrations, UI and security rules.
 - Then follow **`<ledger>/.claude/skills/ledger-module/SKILL.md`** (design
   rules, implementation rules, checks, publishing). Treat this repository as
   the module directory it talks about. Where the docs and Ledger's code
@@ -43,6 +43,12 @@ feature the module uses (the context file says which version added what;
 - AI goes through `ctx.llm` and Gmail through `ctx.gmail` (Ledger ≥ 0.10.0):
   no API keys, OAuth, IMAP or Apps Script bridges of the module's own for
   those. The admin allows the module under Settings → AI / Gmail.
+- Files for other modules go through `ctx.files` (Ledger ≥ 0.11.0), never
+  another module's tables: pick receivers from `ctx.files.targets(kind)`.
+- Organizations (Ledger ≥ 0.11.0): each organization's books and this
+  module's schema are a separate database, and requests already run in the
+  user's current one, so no organization columns. Background jobs (timers,
+  startup) loop over `ctx.orgs.forEach`, or they only see the main books.
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.
 
 ## 3. Check before saying it works
@@ -81,15 +87,27 @@ leave pushing it to them. The module must work without that change.
 An inbox for files sent from the browser, plus the Send to Ledger extension
 that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
 
-- Needs Ledger ≥ 0.10.0 (`ctx.settings`, `ctx.search`, `ctx.dashboard`,
-  drawn icon). Settings: `max_file_mb`, `keep_days`.
+- Needs Ledger ≥ 0.11.0 (`ctx.files`, `ctx.orgs`; before that `ctx.llm`,
+  `ctx.settings`, `ctx.search`, `ctx.dashboard`, drawn icon). Settings:
+  `max_file_mb`, `keep_days`.
+- Each organization has its own inbox. The hourly clean-up and the startup
+  dashboard notice run through `eachOrg` (`ctx.orgs.forEach`), one
+  organization's failure not stopping the others.
+- `POST /files/:id/handoff {to, kind, account_code?}` hands a file to any
+  module that accepts that kind through `ctx.files` (`GET /targets` lists
+  them); `sent_file_id` (migration 002) links the outbox entry so `GET /files`
+  shows the receiver's status and result (`handoff`).
+- `POST /files/:id/extract` reads a non-CSV file (PDF when the provider
+  reads PDFs, or text) with `ctx.llm.json` into a new CSV in the inbox.
 - Upload API is chunked (512 KiB chunks) to stay under Ledger's 1 MiB JSON
   limit: `POST /files` → `PUT /files/:id/chunks/:i` → `POST /files/:id/complete`.
   Bytes live in `file_chunks`; `GET /files/:id/content` reassembles them.
-- The page forwards files to the Auto sort module (`/api/v1/m/categorizer/…`)
-  and to Ledger's `POST /api/v1/files` from the browser, then records it with
-  `POST /files/:id/sent`. Auto sort is optional: detect it (404 on its
-  routes) and hide those options.
+- The page also forwards files to the Auto sort module's own routes
+  (`/api/v1/m/categorizer/…`) and to Ledger's `POST /api/v1/files` from the
+  browser, then records it with `POST /files/:id/sent`. Auto sort is
+  optional: detect it (404 on its routes) and hide those options. Once Auto
+  sort accepts files through `ctx.files` (it's listed by `/targets`), the page
+  uses that instead and hides its direct options.
 - The extension never talks to Ledger from its own origin: every request
   runs inside a Ledger tab via `chrome.scripting.executeScript({ world:
   "MAIN" })` (Ledger's cookie is SameSite=Strict and it refuses cross-site

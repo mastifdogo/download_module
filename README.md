@@ -11,6 +11,9 @@ A module for [Ledger (Bookeeping)](https://github.com/mastifdogo/Bookeeping). It
 - **Sort it in Ledger:** on the **Downloads** page each file can be
   - sent on to the [Auto sort](https://github.com/mastifdogo/auto-sort_module) module, as a
     statement whose transactions you review and post, or as a bill or receipt;
+  - handed to **any other module that takes files** (Ledger's module file exchange): as a
+    statement (with the bank or card account it's for), bill, receipt or transaction list, with the
+    receiving module's result shown on the file;
   - saved to Ledger's CSV files for journal import;
   - run through **Extract data** (for files that aren't a CSV already: PDFs and text files such as TXT, OFX,
     QFX, HTML, XML, JSON, EML): the AI set up under Settings → AI reads its transactions into a new
@@ -25,7 +28,7 @@ A module for [Ledger (Bookeeping)](https://github.com/mastifdogo/Bookeeping). It
 
 ## Install
 
-Needs **Ledger 0.10.0 or newer**.
+Needs **Ledger 0.11.0 or newer**.
 
 1. In Ledger, open **Settings → Modules**, enter `mastifdogo/download_module` and press **Add**.
    **Downloads** appears in the sidebar.
@@ -41,6 +44,9 @@ Needs **Ledger 0.10.0 or newer**.
 
 Auto sort is optional: without it, the inbox still works, and so do downloading and Ledger's CSV
 files.
+
+**Organizations:** each organization in Ledger has its own Downloads inbox. The extension sends to
+the organization you're working in in Ledger at that moment.
 
 **Extract data** needs an AI provider: an admin chooses one under **Settings → AI** and ticks
 **Downloads** there. Without it the option is hidden and the Send panel says what to set up.
@@ -60,6 +66,8 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `POST` | `/files/:id/sent` | `{to, link?}`: record where the page forwarded it |
 | `GET` | `/ai` | `{configured, allowed, reads_pdf, model}`: whether Extract data can be offered |
 | `POST` | `/files/:id/extract` | `{instructions?}`: the AI reads a PDF or text file → the new CSV file (`transactions`, `model`); the original is marked sent |
+| `GET` | `/targets` | modules that take files from other modules, and which kinds |
+| `POST` | `/files/:id/handoff` | `{to, kind, account_code?, note?}`: hand the file to that module (`kind`: statement, bill, receipt, transaction); it's marked sent and `GET /files` shows the receiver's `handoff: {status, result}` |
 | `PATCH`/`DELETE` | `/files/:id` | `{status: "new"\|"archived", note?, name?}`; delete |
 
 Uploads that never complete are removed after a day.
@@ -77,7 +85,7 @@ set under Settings → Downloads have passed. The extension sends nothing anywhe
 ```
 ledger-module.json     manifest (settings, drawn download icon)
 server.mjs             upload in chunks, the inbox, AI extraction to CSV, clean-up, dashboard, search
-migrations/            files and file_chunks (schema mod_downloads)
+migrations/            files and file_chunks (schema mod_downloads); 002 links module hand-offs
 ui/index.html          the Downloads page: inbox, forwarding, the extension download
 ui/extension/          the Send to Ledger browser extension (Manifest V3, Chrome and Firefox)
 ```
@@ -93,6 +101,9 @@ changed), tag `v<version>`, and create a GitHub Release from the tag.
 
 ## Changes
 
+- **0.0.2:** For Ledger 0.11.0: hand files to any module that takes them, and see what it did with
+  them; each organization has its own inbox, and clean-up and the dashboard notice run in every
+  organization.
 - **0.0.1:** Extract data: read a download that isn't a CSV (a PDF or text file) with the AI set
   under Settings → AI into a CSV of its transactions.
 - **0.0.0:** First release: the inbox and the Send to Ledger extension.

@@ -14,7 +14,9 @@ const CHUNK_SIZE = 512 * 1024; // bytes; base64 makes it ~700 KB, under Ledger's
 const STALE_UPLOAD_HOURS = 24;
 const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
-	sent_to, sent_link, sent_by, sent_at, updated_at`;
+	sent_to, sent_link, sent_by, sent_at, sent_file_id, updated_at`;
+const FILE_KINDS = ["statement", "bill", "receipt", "transaction"]; // what ctx.files carries (Ledger >= 0.11.0)
+const ACCOUNT_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
 // ---------------------------------------------------------------------------
 // Extracting data with the AI (POST /files/:id/extract)
@@ -254,6 +256,14 @@ export default async function register(ctx) {
 			[status],
 		);
 		const { rows: counts } = await q(`SELECT status, count(*)::int AS n FROM ${T("files")} WHERE status <> 'uploading' GROUP BY status`);
+		// Files handed to another module: what that module made of them (ctx.files outbox).
+		if (rows.some((r) => r.sent_file_id != null)) {
+			const out = new Map((await ctx.files.outbox({ limit: 500 })).map((o) => [String(o.id), o]));
+			for (const r of rows) {
+				const o = r.sent_file_id != null ? out.get(String(r.sent_file_id)) : null;
+				if (o) r.handoff = { status: o.status, result: o.result };
+			}
+		}
 		return { data: rows, counts: Object.fromEntries(counts.map((c) => [c.status, c.n])) };
 	});
 
@@ -276,11 +286,51 @@ export default async function register(ctx) {
 		if (link && !/^\/(?![/\\])\S{0,500}$/.test(link)) throw bad("link must be a path inside Ledger");
 		if (f.status === "uploading") throw new ctx.HttpError(409, "this file hasn't finished uploading");
 		await q(
-			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), updated_at = now() WHERE id = $1`,
+			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = NULL, updated_at = now() WHERE id = $1`,
 			[f.id, to, link, req.user.username],
 		);
 		await syncNotice();
 		return getFile(f.id);
+	});
+
+	// ---------------------------------------------------------------------
+	// Handing files to other modules (ctx.files, Ledger >= 0.11.0)
+	// ---------------------------------------------------------------------
+
+	// GET /targets: running modules that take files, and which kinds.
+	ctx.route("GET", "/targets", async () => ({ data: ctx.files.targets().filter((t) => t.id !== ctx.id) }));
+
+	// POST /files/:id/handoff {to, kind, account_code?, note?}: send the file to that module; it is then marked sent.
+	ctx.route("POST", "/files/:id/handoff", async (req) => {
+		const f = await getFile(req.params.id);
+		if (f.status === "uploading") throw new ctx.HttpError(409, "this file hasn't finished uploading");
+		const b = req.body ?? {};
+		const to = typeof b.to === "string" ? b.to : "";
+		if (!/^[a-z][a-z0-9-]{1,31}$/.test(to) || to === ctx.id) throw bad("to must be the id of another module");
+		if (!FILE_KINDS.includes(b.kind)) throw bad(`kind must be one of ${FILE_KINDS.join(", ")}`);
+		const target = ctx.files.targets(b.kind).find((t) => t.id === to);
+		if (!target) throw new ctx.HttpError(409, `the module "${to}" isn't running or doesn't take ${b.kind} files`);
+		const meta = {};
+		if (b.account_code !== undefined && b.account_code !== "") {
+			if (typeof b.account_code !== "string" || !ACCOUNT_CODE_RE.test(b.account_code)) throw bad("account_code must be an account code");
+			meta.account_code = b.account_code;
+		}
+		if (f.source_url) meta.source_url = f.source_url;
+		const note = b.note === undefined ? f.note : b.note;
+		if (typeof note !== "string" || note.length > 2000) throw bad("note must be text of at most 2000 characters");
+		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY idx`, [f.id]);
+		const data = Buffer.concat(rows.map((r) => r.data));
+		const sent = await ctx.files.send(
+			{ to, kind: b.kind, filename: f.name, data, contentType: /^[\w.+-]+\/[\w.+-]+$/.test(f.content_type.split(";")[0].trim()) ? f.content_type.split(";")[0].trim() : "application/octet-stream", meta, note },
+			req.user,
+		);
+		await q(
+			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = $5, updated_at = now() WHERE id = $1`,
+			[f.id, `${target.name} (${b.kind})`.slice(0, 200), `/apps/${to}`, req.user.username, sent.id],
+		);
+		ctx.log.info("file handed off", { file: String(f.id), to, kind: b.kind, module_file: String(sent.id), by: req.user.username });
+		await syncNotice();
+		return { ...(await getFile(f.id)), handoff: { status: sent.status, result: sent.result } };
 	});
 
 	ctx.route("PATCH", "/files/:id", async (req) => {
@@ -384,7 +434,7 @@ export default async function register(ctx) {
 		);
 		const id = rows[0].id;
 		await q(
-			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), updated_at = now() WHERE id = $1`,
+			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = NULL, updated_at = now() WHERE id = $1`,
 			[f.id, `extracted to ${name}`.slice(0, 200), `/apps/${ctx.id}?file=${id}`, req.user.username],
 		);
 		ctx.log.info("data extracted", { file: String(f.id), csv: String(id), transactions: tx.length, model: result.model, by: req.user.username });
@@ -402,19 +452,38 @@ export default async function register(ctx) {
 	// Housekeeping: abandoned uploads, and old sent/archived files when Settings say so
 	// ---------------------------------------------------------------------
 
-	async function cleanUp() {
+	// Background work runs in the main books; this does it in every organization's (each has its own inbox).
+	async function eachOrg(what, fn) {
 		try {
-			const { keepDays } = await options();
-			const a = await q(`DELETE FROM ${T("files")} WHERE status = 'uploading' AND received_at < now() - make_interval(hours => $1)`, [STALE_UPLOAD_HOURS]);
-			const b = keepDays > 0 ? await q(`DELETE FROM ${T("files")} WHERE status IN ('sent', 'archived') AND updated_at < now() - make_interval(days => $1)`, [keepDays]) : { rowCount: 0 };
-			if (a.rowCount + b.rowCount > 0) ctx.log.info("cleaned up", { abandoned_uploads: a.rowCount, old_files: b.rowCount });
+			await ctx.orgs.forEach(async (org) => {
+				try {
+					await fn(org);
+				} catch (err) {
+					ctx.log.warn(`${what} failed`, { org: String(org.id), err: String(err?.message || err) });
+				}
+			});
 		} catch (err) {
-			ctx.log.warn("clean-up failed", { err: String(err?.message || err) });
+			ctx.log.warn(`${what} failed`, { err: String(err?.message || err) });
 		}
 	}
-	const timer = setInterval(cleanUp, 60 * 60 * 1000);
+
+	async function cleanUp() {
+		const { keepDays } = await options();
+		await eachOrg("clean-up", async (org) => {
+			const a = await q(`DELETE FROM ${T("files")} WHERE status = 'uploading' AND received_at < now() - make_interval(hours => $1)`, [STALE_UPLOAD_HOURS]);
+			const b = keepDays > 0 ? await q(`DELETE FROM ${T("files")} WHERE status IN ('sent', 'archived') AND updated_at < now() - make_interval(days => $1)`, [keepDays]) : { rowCount: 0 };
+			if (a.rowCount + b.rowCount > 0) {
+				ctx.log.info("cleaned up", { org: String(org.id), abandoned_uploads: a.rowCount, old_files: b.rowCount });
+				await syncNotice();
+			}
+		});
+	}
+	const timer = setInterval(() => cleanUp().catch(() => {}), 60 * 60 * 1000);
 	timer.unref?.();
-	cleanUp(); // not awaited: register must finish quickly
+	// Not awaited: register must finish quickly.
+	cleanUp()
+		.then(() => eachOrg("dashboard update", syncNotice))
+		.catch(() => {});
 
 	// ---------------------------------------------------------------------
 	// Ledger's search bar
@@ -436,6 +505,5 @@ export default async function register(ctx) {
 		}));
 	});
 
-	await syncNotice();
 	ctx.log.info("downloads module ready");
 }
