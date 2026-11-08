@@ -1,7 +1,7 @@
 {
   "id": "downloads",
   "name": "Downloads",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "An inbox in Ledger for files sent from your browser with the Send to Ledger extension (included): bank statements, bills, CSVs. Forward them to the Auto sort module or Ledger's CSV import, download, archive or delete them.",
   "ledger": ">=0.11.0",
   "server": "server.mjs",

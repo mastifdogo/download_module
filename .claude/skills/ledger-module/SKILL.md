@@ -49,6 +49,10 @@ feature the module uses (the context file says which version added what;
   module's schema are a separate database, and requests already run in the
   user's current one, so no organization columns. Background jobs (timers,
   startup) loop over `ctx.orgs.forEach`, or they only see the main books.
+- Configuration goes in the manifest's `settings.fields`. Each organization
+  has its own values (Ledger ≥ 0.11.1): call `ctx.settings.get()` where
+  they're used (inside `ctx.orgs.forEach` for background work), never one
+  cached copy.
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.
 
 ## 3. Check before saying it works
@@ -75,7 +79,10 @@ a change in Ledger (a bug fix, a new `ctx` feature, a docs or checker fix),
 make it in a local Ledger checkout, tell the user what it is and why, and
 leave pushing it to them. The module must work without that change.
 
-1. Bump `version` in `ledger-module.json` (and note the change in the README).
+1. Bump `version` in `ledger-module.json` (and note the change in the README):
+   new features raise the middle number and reset the last (`1.4.2` →
+   `1.5.0`); tweaks and bug fixes only raise the last (`1.4.2` → `1.4.3`); a
+   release with both is a feature release.
 2. Commit, tag `v<version>`, push the tag, and create a GitHub Release from
    it (not a draft or pre-release). If tags or releases can't be created from
    this session, tell the user which commit to release in GitHub's web UI.
@@ -92,7 +99,9 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   `max_file_mb`, `keep_days`.
 - Each organization has its own inbox. The hourly clean-up and the startup
   dashboard notice run through `eachOrg` (`ctx.orgs.forEach`), one
-  organization's failure not stopping the others.
+  organization's failure not stopping the others. `max_file_mb` and
+  `keep_days` are per organization from Ledger 0.11.1, so `options()` is
+  read per request and per organization in the clean-up.
 - `POST /files/:id/handoff {to, kind, account_code?}` hands a file to any
   module that accepts that kind through `ctx.files` (`GET /targets` lists
   them); `sent_file_id` (migration 002) links the outbox entry so `GET /files`

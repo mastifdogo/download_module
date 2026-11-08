@@ -37,7 +37,7 @@ Needs **Ledger 0.11.0 or newer**.
    [ui/extension/README.md](ui/extension/README.md).
 3. In the extension's options, enter your Ledger address, **Save**, allow access, and **Test**.
 
-**Options** (Settings → Downloads):
+**Options** (Settings → Downloads; from Ledger 0.11.1 each organization has its own):
 - **Largest file accepted:** 25 MB by default, at most 100.
 - **Delete sent and archived files after:** a number of days, or 0 to keep them. Files waiting in
   the inbox are never deleted automatically.
@@ -101,6 +101,8 @@ changed), tag `v<version>`, and create a GitHub Release from the tag.
 
 ## Changes
 
+- **0.0.3:** Clean-up uses each organization's own *Delete sent and archived files after* setting
+  (settings are per organization from Ledger 0.11.1).
 - **0.0.2:** For Ledger 0.11.0: hand files to any module that takes them, and see what it did with
   them; each organization has its own inbox, and clean-up and the dashboard notice run in every
   organization.

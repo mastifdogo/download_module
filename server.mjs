@@ -468,8 +468,8 @@ export default async function register(ctx) {
 	}
 
 	async function cleanUp() {
-		const { keepDays } = await options();
 		await eachOrg("clean-up", async (org) => {
+			const { keepDays } = await options(); // each organization has its own settings (Ledger >= 0.11.1)
 			const a = await q(`DELETE FROM ${T("files")} WHERE status = 'uploading' AND received_at < now() - make_interval(hours => $1)`, [STALE_UPLOAD_HOURS]);
 			const b = keepDays > 0 ? await q(`DELETE FROM ${T("files")} WHERE status IN ('sent', 'archived') AND updated_at < now() - make_interval(days => $1)`, [keepDays]) : { rowCount: 0 };
 			if (a.rowCount + b.rowCount > 0) {
