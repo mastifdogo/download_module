@@ -14,15 +14,21 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
   account, or any mailbox over IMAP, and imports the documents in emails that look like bills
   (PDFs, CSV/OFX statements, photos of receipts). A bill sent as the email itself is saved as an
   `.eml` file. Nothing is read by AI here and nothing is marked as read; each message is imported
-  once. (The same check as the Auto sort module's; see *Email* below.)
+  once. (The same check as the Auto sort module's; see *Email* below.) **It learns from you:**
+  delete an email file with *Delete and learn* and later files like it from that sender are
+  skipped; files you send on count as wanted. What it learned is a training file you can download
+  and load (see *What the email check learns*).
 - **Scan** tab, on a computer or a phone:
   - **Scanner:** scan on a network scanner or multifunction printer with **AirScan / eSCL** (most
-    HP, Canon, Epson, Brother and Xerox models from the last ten years): glass or document feeder,
-    colour or grey, resolution, both sides. The Ledger server talks to the scanner, so it works the
-    same from any device; the pages become one PDF in the inbox.
-  - **Camera** (phones and tablets): take photos of a receipt or bill (or choose them); several
-    photos become the pages of one PDF. Photos are shrunk (2000 px) and turned into the PDF on the
-    phone; only the PDF is uploaded.
+    HP, Canon, Epson, Brother and Xerox models from the last ten years), or a **USB scanner on a
+    computer** through the included scan bridge: glass or document feeder, colour or grey,
+    resolution, both sides. The Ledger server talks to the scanner, so it works the same from any
+    device; the pages become one PDF in the inbox.
+  - **Camera** (phones and tablets): take photos of a receipt or bill (or choose them). Each photo
+    is checked for the receipt: its edges are found and shown with corners you can drag, then the
+    page is straightened and cropped to the receipt, and optionally cleaned up to black print on
+    white. Several photos become the pages of one PDF. It all happens on the phone; only the PDF is
+    uploaded.
   - **Upload files:** anything from your computer or phone, e.g. a scan made with a USB scanner's
     own app.
 
@@ -90,6 +96,24 @@ appears if a check fails.
 email off (Settings → Auto sort → *Read bills from* → *Don't read email*) and send the files on from
 here (*Auto sort: bill*, or *Extract data*).
 
+### What the email check learns
+
+Deleting a file that came from email asks: **Delete and learn** (files like this aren't wanted) or
+**Just delete** (a duplicate, a one-off). Files you send on (to Auto sort, Extract data, another
+module, Ledger's CSV files) count as wanted. Each check then scores every attachment against what
+you taught about **its own sender**: the sender and its domain, words in the subject and in the file
+name, the file type. It's skipped when it looks like what you deleted (85% sure or more), and only
+with a file like the deleted ones (a file name word in common, or an email without attachments),
+so deleting one sender's `terms-and-conditions.pdf` skips those, not its invoices; a sender whose
+files you deleted three times and never kept is skipped whatever the file. A new sender is never
+skipped. No AI is involved: it's word counting over your own choices.
+
+*What it learned* (next to *Check email now*) lists the senders with what you deleted and kept, with
+*Forget* for each, and the **skipped emails with the reason** and **Import anyway** (which also
+teaches it that such files are wanted). **Download the training file** saves everything learned as
+JSON (`"format": "ledger-import-email-training"`); **Load a training file** adds one, e.g. in
+another organization or after a reinstall; examples it already knows are skipped.
+
 ### Scanner
 
 On the **Scan** tab an admin presses **Find scanners** (the Ledger server looks for AirScan scanners
@@ -100,9 +124,22 @@ Ledger machine itself).
 
 - **Find scanners finds nothing:** the Ledger server must be on the scanner's network; in a
   container it may need host networking. Enter the address instead.
-- **USB scanners** can't be reached from a web page. Use the scanner's own app and **Upload files**,
-  or share it on the network with [AirSane](https://github.com/SimulPiscator/AirSane) (on the Ledger
-  machine or a Raspberry Pi), which makes it an AirScan scanner.
+- **USB scanners:** a web page can't reach USB, so the computer the scanner is plugged into (your
+  PC, or the Ledger server itself) runs the **scan bridge**, which shares it as an AirScan scanner;
+  then it scans from Import on any device. Download it on the Scan tab (*Scanner plugged into a
+  computer by USB?*):
+  - **Windows:** `ledger-scan-bridge.ps1` uses Windows' own scanner support (WIA), nothing to
+    install. Run it once as Administrator (`powershell -ExecutionPolicy Bypass -File
+    .\ledger-scan-bridge.ps1` in *Terminal (Admin)*): it reserves port 8090 and opens it in the
+    firewall for private networks (if Windows calls your network *Public*, make it *Private*).
+  - **Mac and Linux:** `ledger-scan-bridge.py` uses SANE (`brew install sane-backends`, or
+    `sudo apt install sane-utils`; version 1.0.28 or newer): `python3 ledger-scan-bridge.py`.
+  - It prints the address to enter as the scanner (e.g. `http://192.168.1.25:8090/eSCL`; on the
+    Ledger server itself `http://127.0.0.1:8090/eSCL`). Only computers on your local network can
+    use it; `-Allow` / `--allow <Ledger server's address>` narrows that. Leave it running.
+
+  Or scan with the scanner's own app and **Upload files**, or use
+  [AirSane](https://github.com/SimulPiscator/AirSane), which does the same as the bridge on Linux.
 - A scan runs on the server in the background (a feeder of pages takes a while) and becomes a PDF
   with one page per sheet; it must fit the *Largest file accepted* setting.
 
@@ -132,6 +169,12 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `GET` | `/scanner` | the scanner set up: `{configured, reachable, name, sources: [{id, duplex, colorModes, resolutions}], state, adf}` |
 | `POST` | `/scanner/find`, `/scanner` | admins: AirScan scanners on the network `{data: [{name, url}]}`; use one `{url}` (`""` forgets it) |
 | `POST` | `/scans` | `{source?: "Platen"\|"Feeder", color?: "color"\|"gray", resolution?, duplex?, name?}` → 202 `{id, status}` |
+| `GET` | `/mail/skipped` | emails (or some of their files) skipped because of what the check learned, with the reason |
+| `POST` | `/mail/skipped/import` | `{folder, uidvalidity, uid}`: import it anyway (and learn it's wanted) |
+| `DELETE` | `/files/:id?learn=1` | delete an email file and learn from it → `{deleted, learned}` |
+| `GET` | `/training`, `/training/file` | what was learned (senders, recent examples); the training file |
+| `POST` | `/training/file`, `/training/forget` | load a training file → `{added, skipped}`; forget `{sender}` or `{all: true}` |
+| `GET` | `/me` | `{username, role, ledger, version}` for the page |
 | `GET` | `/scans/:id` | `{status: "scanning"\|"done"\|"error", pages, file_id, file_name, error}` |
 
 `POST /files` also takes `origin`: `"camera"` or `"upload"` (the page sets it); files from email
@@ -158,10 +201,13 @@ lib/mail.mjs           the email check (Gmail through ctx.gmail, or IMAP)
 lib/imap.mjs, mime.mjs read-only IMAP client and MIME parser (from the Auto sort module)
 lib/escl.mjs           network scanners: eSCL / AirScan, mDNS discovery, local-network check
 lib/pdf.mjs            JPEG pages -> PDF
+lib/learn.mjs          what the email check learns: features, naive Bayes per sender, training file
 migrations/            files and file_chunks (schema mod_downloads); 002 module hand-offs; 003 AI
-                       extractions; 004 file origins, the email log
+                       extractions; 004 file origins, the email log; 005 email training
 ui/index.html          the Import page: inbox, forwarding, AI review, Scan (scanner, camera, upload), the extension download
-test/                  npm test: email, IMAP, MIME, eSCL (a fake scanner), PDF
+ui/receipt.js          finding, straightening and cleaning up a receipt in a photo (canvas, no libraries)
+ui/scan-bridge/        the USB scan bridge: Windows (PowerShell, WIA) and Mac/Linux (Python, SANE)
+test/                  npm test: email, IMAP, MIME, eSCL (a fake scanner), PDF, learning, the Python scan bridge
 ui/extension/          the Send to Ledger browser extension (Manifest V3, Chrome and Firefox)
 ```
 
@@ -179,6 +225,12 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.5.0:** The email check learns: *Delete and learn* on an email file skips files like it from
+  that sender later (files sent on count as wanted); skipped emails are listed with *Import
+  anyway*; a downloadable training file. USB scanners on a PC (or the Ledger server) through the
+  scan bridge (Windows: PowerShell and WIA; Mac and Linux: Python and SANE). The camera finds the
+  receipt in each photo, with corners to adjust, then straightens, crops and optionally cleans it
+  up. "+ New account…" in the statement account list (Ledger 0.11.3+).
 - **0.4.1:** Releases are made by a GitHub workflow when a new version reaches `main`. (Includes
   0.4.0, which was never released on its own.)
 - **0.4.0:** Renamed **Import**. Email: imports documents from bill emails (Gmail or IMAP; the

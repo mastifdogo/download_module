@@ -139,6 +139,22 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   `origin: "email"`), bills without attachments `.eml`; `mail_seen` keeps
   each message once, `state` the last check. A minute timer loops
   `ctx.orgs.forEach`; "auto" reads Gmail only in organization 1. No AI.
+- **Email learning** (`lib/learn.mjs`, migration 005): email files keep
+  `mail_features`; `DELETE /files/:id?learn=1` stores an unwanted example,
+  sending a file on (`learnKept` in /sent, /handoff, extraction approve) a
+  wanted one. `learner()` judges each attachment only against examples from
+  its own sender/domain (naive Bayes, skip at ≥ 85% with a matching file
+  word, or 3+ deletions and nothing kept). Skips are logged in `mail_seen`
+  (`reason`) and can be imported anyway. No AI. Training file:
+  `GET/POST /training/file` (`"format": "ledger-import-email-training"`).
+- **Scan bridge** (`ui/scan-bridge/`): a USB scanner on a PC shared as eSCL —
+  `.ps1` (Windows, WIA COM + HttpListener; can't be run in CI, review by
+  hand) and `.py` (SANE scanimage, tested in test/bridge.test.mjs with a
+  stand-in scanimage). Both serve the subset lib/escl.mjs uses.
+- **Camera receipt detection** (`ui/receipt.js`): Otsu threshold → largest
+  light region → convex hull → max-area quad; the person drags the corners;
+  `warp` (homography, bilinear) and `cleanUp` (levels). Untrusted results
+  fall back to the whole photo.
 - **Scanner** (`lib/escl.mjs`): eSCL over node:http/https from the server
   (scanners use self-signed certs), only to local addresses (resolved once,
   checked, then connected to; the job URL must stay on the same host).

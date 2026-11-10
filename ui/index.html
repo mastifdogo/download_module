@@ -32,6 +32,7 @@
 	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 	.btn.danger { color: var(--bad); }
 	.btn:disabled { opacity: 0.5; cursor: default; }
+	a.btn { text-decoration: none; display: inline-block; }
 	table { width: 100%; border-collapse: collapse; }
 	th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 	th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 600; }
@@ -98,6 +99,22 @@
 <section id="tab-scan" class="hidden" role="tabpanel">
 	<h2 style="margin-top:0">Scanner</h2>
 	<div id="scanner" class="panel small"><span class="muted">Looking for the scanner…</span></div>
+	<details id="bridge" class="small" style="margin-top:0.5rem">
+		<summary>Scanner plugged into a computer by USB?</summary>
+		<div class="panel" style="margin-top:0.4rem">
+			<p style="margin-top:0">A web page can't reach a USB scanner, so a small program on the computer it's plugged into (your PC, or the Ledger server itself) shares it with Import as a network scanner. Then it scans from here on any device, phones included.</p>
+			<div class="actions">
+				<a class="btn" href="scan-bridge/ledger-scan-bridge.ps1" download>Windows: ledger-scan-bridge.ps1</a>
+				<a class="btn" href="scan-bridge/ledger-scan-bridge.py" download>Mac and Linux: ledger-scan-bridge.py</a>
+			</div>
+			<ol style="margin-bottom:0">
+				<li><strong>Windows</strong> (uses Windows' own scanner support, nothing to install): the first time, right-click the Start button → <em>Terminal (Admin)</em>, go to the folder you saved it in (e.g. <code>cd Downloads</code>) and run <code>powershell -ExecutionPolicy Bypass -File .\ledger-scan-bridge.ps1</code>. It reserves its port and opens it in the firewall for your home network. Next times a normal window works.</li>
+				<li><strong>Mac and Linux</strong> (uses SANE): install it once (Mac: <code>brew install sane-backends</code>; Debian/Ubuntu: <code>sudo apt install sane-utils</code>), then run <code>python3 ledger-scan-bridge.py</code>.</li>
+				<li>It prints an address such as <code>http://192.168.1.25:8090/eSCL</code>. An admin enters it here (<em>Change scanner</em> → the address → <em>Use this address</em>). On the Ledger server itself, use <code>http://127.0.0.1:8090/eSCL</code>.</li>
+				<li>Leave the bridge running while you scan; start it again after a restart (or put it in the computer's startup items).</li>
+			</ol>
+		</div>
+	</details>
 
 	<div id="camera-box" class="hidden">
 	<h2>Camera</h2>
@@ -107,6 +124,17 @@
 		<label class="btn big">Choose photos<input id="scan-pick" type="file" accept="image/*" multiple class="visually-hidden"></label>
 	</div>
 	<p id="scan-busy" class="muted small hidden">Preparing the photo…</p>
+	<div id="crop" class="panel hidden" style="margin-top:0.75rem">
+		<div id="crop-msg" class="small"></div>
+		<canvas id="crop-canvas" style="display:block;width:100%;margin-top:0.5rem;border-radius:6px;touch-action:none;background:#000"></canvas>
+		<label class="inline small" style="margin-top:0.5rem"><input type="checkbox" id="crop-clean"> Clean up: black print on white paper</label>
+		<div class="row" style="margin-top:0.6rem">
+			<button class="btn" id="crop-skip">Discard</button>
+			<button class="btn" id="crop-whole">Whole photo</button>
+			<span class="spacer"></span>
+			<button class="btn primary big" id="crop-use">Use this</button>
+		</div>
+	</div>
 	<div id="scan-pages" class="scan-pages"></div>
 	<div id="scan-save" class="panel hidden" style="margin-top:0.75rem">
 		<label class="stacked">File name<input id="scan-name" type="text" maxlength="255"></label>
@@ -143,6 +171,7 @@
 </div>
 
 <div id="mail" class="row small hidden" style="margin-top:0.5rem"></div>
+<div id="training" class="panel small hidden" style="margin-top:0.5rem"></div>
 
 <div id="ext" class="panel hidden" style="margin-top:0.75rem">
 	<strong>Send to Ledger</strong>: a Chrome and Firefox extension that sends files from any website straight into this inbox (or to Auto sort), without saving them to your computer. Right-click a download link and choose <em>Send to Ledger…</em>, or drop a file on its toolbar button.
@@ -165,6 +194,7 @@
 
 <div id="toast"></div>
 
+<script src="receipt.js"></script>
 <script>
 	// Served by Ledger at /m/downloads/, so API calls carry the user's login.
 	const call = (url, opts = {}) =>
@@ -276,7 +306,7 @@
 		$("counts").textContent = `${c.new || 0} in the inbox · ${c.sent || 0} sent · ${c.archived || 0} archived`;
 		$("empty").classList.toggle("hidden", files.length > 0);
 		$("files").classList.toggle("hidden", files.length === 0);
-		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail()]);
+		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail(), me ? null : api("/me").then((x) => (me = x), () => (me = { role: "viewer" }))]);
 		if ((targets || []).some((t) => t.accepts.includes("statement"))) await bankAccounts();
 		render();
 	}
@@ -293,6 +323,7 @@
 						actions(f),
 						f.pending_extraction && reviewId !== f.pending_extraction ? el("div", { class: "small review-note" }, "AI extracted data from this file. ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); openReview(f.pending_extraction); } }, "Check and approve it")) : null,
 						reviewId && review && review.file_id === f.id ? reviewPanel(f) : null,
+						deletingId === f.id ? deletePanel(f) : null,
 						openId === f.id && !(review && review.file_id === f.id) ? forwardPanel(f) : null,
 					),
 					el("td", { class: "num" }, size(Number(f.size_bytes))),
@@ -311,6 +342,44 @@
 		return el("span", { title: f.origin_detail || what }, what, f.origin_detail ? el("div", { class: "muted" }, f.origin_detail) : null);
 	}
 
+	// ------------------------------------------------------------- "+ New account…" (Ledger ≥ 0.11.3 opens its New account dialog)
+	let me = null; // { role, ledger }
+	const NEW_ACCOUNT = "\u0000new";
+	const atLeast = (v, want) => { const a = String(v || "0").split(".").map(Number), b = want.split(".").map(Number); for (let i = 0; i < 3; i++) if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; return true; };
+	const canAddAccount = () => !!me && me.role !== "viewer" && atLeast(me.ledger, "0.11.3");
+	function newAccount(defaults = {}) {
+		const id = crypto.randomUUID();
+		return new Promise((resolve) => {
+			addEventListener("message", function on(e) {
+				if (e.origin !== location.origin || e.data?.type !== "ledger-new-account-result" || e.data.id !== id) return;
+				removeEventListener("message", on);
+				resolve(e.data.account); // the account, or null (cancelled)
+			});
+			parent.postMessage({ type: "ledger-new-account", id, defaults }, location.origin);
+		});
+	}
+
+	// ------------------------------------------------------------- deleting an email file teaches the email check
+	let deletingId = null;
+	function deletePanel(f) {
+		const del = async (learn) => {
+			try {
+				const r = await api(`/files/${f.id}${learn ? "?learn=1" : ""}`, { method: "DELETE" });
+				deletingId = null;
+				toast(r?.learned ? `Deleted. Email import will skip files like ${f.name} from ${f.origin_detail || "this sender"}.` : `Deleted ${f.name}.`);
+				await load();
+			} catch (e) { fail(e); }
+		};
+		return el("div", { class: "panel forward small" },
+			el("div", {}, `Delete ${f.name}?`),
+			el("div", { class: "muted", style: "margin-top:0.2rem" }, `It came from email${f.origin_detail ? ` (${f.origin_detail})` : ""}. "Delete and learn" teaches the email check that files like this aren't wanted, so later ones from this sender are skipped. Use "Just delete" for a duplicate or a one-off.`),
+			el("div", { class: "actions" },
+				el("button", { class: "btn danger", onclick: () => del(true) }, "Delete and learn"),
+				el("button", { class: "btn", onclick: () => del(false) }, "Just delete"),
+				el("button", { class: "btn", onclick: () => { deletingId = null; render(); } }, "Cancel")),
+		);
+	}
+
 	const HANDOFF = { new: "Waiting for the module", accepted: "Being processed", done: "Done", rejected: "Rejected" };
 
 	function actions(f) {
@@ -319,7 +388,11 @@
 			b("Send…", () => { openId = openId === f.id ? null : f.id; render(); }, "btn primary"),
 			b("Download", () => download(f)),
 			f.status === "archived" ? b("Back to inbox", () => patch(f, { status: "new" })) : b("Archive", () => patch(f, { status: "archived" })),
-			b("Delete", () => confirm(`Delete ${f.name}?`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail), "btn danger"),
+			b("Delete", () => {
+				if (!f.learnable) return confirm(`Delete ${f.name}?`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail);
+				deletingId = deletingId === f.id ? null : f.id;
+				render();
+			}, "btn danger"),
 		);
 	}
 
@@ -352,12 +425,25 @@
 		}
 		const dest = el("select", {}, ...opts.map(([v, t]) => el("option", { value: v }, t)));
 		const acctList = autosort ? autosort.accounts : accounts || [];
-		const account = el("select", {}, el("option", { value: "" }, "Choose the bank or card account…"), ...acctList.map((a) => el("option", { value: a.code }, `${a.code} · ${a.name} (${a.type}, ${a.currency})`)));
+		const acctOption = (a) => el("option", { value: a.code }, `${a.code} · ${a.name} (${a.type}, ${a.currency})`);
+		const account = el("select", {}, el("option", { value: "" }, "Choose the bank or card account…"), ...acctList.map(acctOption), canAddAccount() ? el("option", { value: NEW_ACCOUNT }, "+ New account…") : null);
 		const flipLabel = el("label", { class: "inline" });
 		const flip = el("input", { type: "checkbox" });
 		flipLabel.append(flip, "Purchases show as positive amounts (flip signs)");
 		const stmt = el("div", { class: "row", style: "margin-top:0.4rem" }, account, flipLabel);
-		account.onchange = () => (flip.checked = acctList.find((a) => a.code === account.value)?.type === "liability" && /\.csv$/i.test(f.name));
+		const pickFlip = () => (flip.checked = acctList.find((a) => a.code === account.value)?.type === "liability" && /\.csv$/i.test(f.name));
+		account.onchange = async () => {
+			if (account.value !== NEW_ACCOUNT) return pickFlip();
+			account.value = "";
+			const a = await newAccount({ type: "asset", currency: "CAD" });
+			if (!a) return;
+			if (a.type === "asset" || a.type === "liability") {
+				acctList.push(a);
+				account.insertBefore(acctOption(a), account.lastElementChild);
+				account.value = a.code;
+				pickFlip();
+			} else toast(`${a.code} · ${a.name} was created, but statements need a bank or card account (asset or liability).`, true);
+		};
 		const instructions = el("input", { type: "text", maxlength: "1000", placeholder: "Optional hints, e.g. “only the chequing account”", style: "flex:1;min-width:12rem" });
 		const ext = el("div", { style: "margin-top:0.4rem" },
 			el("div", { class: "row" }, instructions),
@@ -571,8 +657,8 @@
 	}
 	for (const b of document.querySelectorAll(".tab")) b.onclick = () => showTab(b.dataset.tab);
 
-	/** A photo as a JPEG at most 2000 px on its long side (upright, as the camera held it). */
-	async function photoToJpeg(file) {
+	/** A photo on a canvas, upright as the camera held it, at most 3000 px on its long side (for finding and straightening the receipt). */
+	async function loadPhoto(file) {
 		let img;
 		try {
 			img = await createImageBitmap(file, { imageOrientation: "from-image" });
@@ -585,16 +671,30 @@
 			});
 		}
 		const w0 = img.width, h0 = img.height;
-		const k = Math.min(1, 2000 / Math.max(w0, h0));
+		const k = Math.min(1, 3000 / Math.max(w0, h0));
 		const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
 		const canvas = document.createElement("canvas");
 		canvas.width = w;
 		canvas.height = h;
-		const g = canvas.getContext("2d");
+		const g = canvas.getContext("2d", { willReadFrequently: true });
 		g.fillStyle = "#fff"; // transparent PNGs on white
 		g.fillRect(0, 0, w, h);
 		g.drawImage(img, 0, 0, w, h);
 		img.close?.();
+		return canvas;
+	}
+
+	/** A page: the canvas as a JPEG at most 2000 px on its long side. */
+	async function canvasToPage(src) {
+		const k = Math.min(1, 2000 / Math.max(src.width, src.height));
+		let canvas = src;
+		if (k < 1) {
+			canvas = document.createElement("canvas");
+			canvas.width = Math.max(1, Math.round(src.width * k));
+			canvas.height = Math.max(1, Math.round(src.height * k));
+			canvas.getContext("2d").drawImage(src, 0, 0, canvas.width, canvas.height);
+		}
+		const w = canvas.width, h = canvas.height;
 		const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.82));
 		if (!blob) throw new Error("Couldn't prepare the photo.");
 		return { jpeg: new Uint8Array(await blob.arrayBuffer()), w, h, url: URL.createObjectURL(blob) };
@@ -662,10 +762,111 @@
 		const files = [...input.files];
 		input.value = ""; // the same photo can be chosen again
 		if (!files.length) return;
-		$("scan-busy").classList.remove("hidden");
+		document.querySelector("#camera-box .scan-actions").classList.add("hidden");
+		$("scan-save").classList.add("hidden");
 		try {
-			for (const f of files) pages.push(await photoToJpeg(f));
-		} catch (e) { fail(e); } finally { $("scan-busy").classList.add("hidden"); drawPages(); }
+			for (const f of files) {
+				$("scan-busy").classList.remove("hidden");
+				const photo = await loadPhoto(f);
+				await new Promise((r) => setTimeout(r, 0)); // let "Preparing…" show
+				const found = window.Receipt ? Receipt.detect(photo) : { corners: [[0, 0], [photo.width, 0], [photo.width, photo.height], [0, photo.height]], found: false };
+				$("scan-busy").classList.add("hidden");
+				const page = await editPhoto(photo, found);
+				if (page) { pages.push(await canvasToPage(page)); drawPages(); }
+			}
+		} catch (e) { fail(e); } finally {
+			$("scan-busy").classList.add("hidden");
+			$("crop").classList.add("hidden");
+			document.querySelector("#camera-box .scan-actions").classList.remove("hidden");
+			drawPages();
+		}
+	}
+
+	/**
+	 * Shows the photo with the receipt's corners (found, or the whole photo) to drag into place.
+	 * Resolves with the page's canvas (straightened, maybe cleaned up), or null when discarded.
+	 */
+	function editPhoto(photo, found) {
+		const box = $("crop"), cv = $("crop-canvas");
+		const corners = found.corners.map((p) => p.slice());
+		$("crop-msg").replaceChildren(found.found
+			? el("span", {}, el("strong", {}, "Receipt found. "), "Drag the corners onto the receipt's corners if they're off, then Use this.")
+			: el("span", {}, el("strong", {}, "Couldn't find the receipt's edges. "), "Drag the four corners onto the receipt's corners (a dark background helps), or use the whole photo."));
+		$("crop-clean").checked = found.found;
+		box.classList.remove("hidden");
+		const dpr = window.devicePixelRatio || 1;
+		let scale = 1;
+		const draw = () => {
+			const maxW = box.clientWidth - 2, maxH = Math.max(240, window.innerHeight * 0.62);
+			scale = Math.min(maxW / photo.width, maxH / photo.height);
+			const w = Math.round(photo.width * scale), h = Math.round(photo.height * scale);
+			cv.style.width = `${w}px`;
+			cv.style.height = `${h}px`;
+			cv.width = Math.round(w * dpr);
+			cv.height = Math.round(h * dpr);
+			const g = cv.getContext("2d");
+			g.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
+			g.drawImage(photo, 0, 0);
+			const lw = 3 / scale, r = 13 / scale;
+			// Dim what's outside the receipt.
+			g.save();
+			g.beginPath();
+			g.rect(0, 0, photo.width, photo.height);
+			corners.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+			g.closePath();
+			g.fillStyle = "rgba(0,0,0,0.45)";
+			g.fill("evenodd");
+			g.restore();
+			g.beginPath();
+			corners.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+			g.closePath();
+			g.lineWidth = lw;
+			g.strokeStyle = "#4c8dff";
+			g.stroke();
+			for (const [x, y] of corners) {
+				g.beginPath();
+				g.arc(x, y, r, 0, Math.PI * 2);
+				g.fillStyle = "rgba(255,255,255,0.9)";
+				g.fill();
+				g.lineWidth = lw;
+				g.stroke();
+			}
+		};
+		let drag = -1;
+		const at = (e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) / scale, (e.clientY - b.top) / scale]; };
+		cv.onpointerdown = (e) => {
+			const p = at(e);
+			let best = -1, bestD = 44 / scale;
+			corners.forEach((c, i) => { const d = Math.hypot(c[0] - p[0], c[1] - p[1]); if (d < bestD) { bestD = d; best = i; } });
+			if (best < 0) return;
+			drag = best;
+			cv.setPointerCapture(e.pointerId);
+			e.preventDefault();
+		};
+		cv.onpointermove = (e) => {
+			if (drag < 0) return;
+			const [x, y] = at(e);
+			corners[drag] = [Math.min(photo.width, Math.max(0, x)), Math.min(photo.height, Math.max(0, y))];
+			draw();
+		};
+		cv.onpointerup = cv.onpointercancel = () => (drag = -1);
+		const onResize = () => draw();
+		addEventListener("resize", onResize);
+		draw();
+		box.scrollIntoView({ block: "nearest" });
+		return new Promise((resolve) => {
+			const done = (canvas) => {
+				removeEventListener("resize", onResize);
+				box.classList.add("hidden");
+				resolve(canvas);
+			};
+			$("crop-skip").onclick = () => done(null);
+			$("crop-whole").onclick = () => done($("crop-clean").checked ? Receipt.cleanUp(photo) : photo);
+			$("crop-use").onclick = () => {
+				const out = Receipt.warp(photo, corners, 2000);
+				done($("crop-clean").checked ? Receipt.cleanUp(out) : out);
+			};
+		});
 	}
 	$("scan-camera").onchange = (e) => addPhotos(e.target);
 	$("scan-pick").onchange = (e) => addPhotos(e.target);
@@ -719,6 +920,7 @@
 	function drawScanner() {
 		const box = $("scanner");
 		const s = scanner;
+		$("bridge").open = !s.configured && !!s.admin;
 		if (!s.configured) {
 			box.replaceChildren(
 				el("div", {}, "No scanner is set up. A scanner or printer with AirScan (eSCL) on your network works: most HP, Canon, Epson, Brother and Xerox models from the last ten years."),
@@ -803,6 +1005,72 @@
 		);
 	}
 
+	// ------------------------------------------------------------- What the email check learned, and the training file
+	async function toggleTraining(force) {
+		const box = $("training");
+		if (!force && !box.classList.contains("hidden")) return box.classList.add("hidden");
+		box.classList.remove("hidden");
+		box.replaceChildren(el("span", { class: "muted" }, "Loading…"));
+		let t, sk;
+		try { [t, sk] = await Promise.all([api("/training"), api("/mail/skipped")]); } catch (e) { box.replaceChildren(); return fail(e); }
+		const forget = async (body, what) => {
+			if (!confirm(`Forget ${what}?`)) return;
+			try { const r = await api("/training/forget", { method: "POST", body: JSON.stringify(body) }); toast(`Forgot ${r.forgotten} example${r.forgotten === 1 ? "" : "s"}.`); toggleTraining(true); } catch (e) { fail(e); }
+		};
+		const download = async () => {
+			try {
+				const file = await api("/training/file");
+				const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 1)], { type: "application/json" }));
+				el("a", { href: url, download: `import-email-training-${new Date().toISOString().slice(0, 10)}.json` }).click();
+				setTimeout(() => URL.revokeObjectURL(url), 10_000);
+			} catch (e) { fail(e); }
+		};
+		const loader = el("input", { type: "file", accept: "application/json,.json", class: "visually-hidden", onchange: async (e) => {
+			const file = e.target.files[0];
+			e.target.value = "";
+			if (!file) return;
+			try {
+				const r = await api("/training/file", { method: "POST", body: await file.text() });
+				toast(`Loaded ${r.added} example${r.added === 1 ? "" : "s"}${r.skipped ? ` (${r.skipped} already known)` : ""}.`);
+				toggleTraining(true);
+			} catch (err) { fail(err); }
+		} });
+		const importAnyway = async (row, btn) => {
+			btn.disabled = true;
+			try {
+				const r = await api("/mail/skipped/import", { method: "POST", body: JSON.stringify({ folder: row.folder, uidvalidity: row.uidvalidity, uid: row.uid }) });
+				toast(r.files ? `Imported ${r.files} file${r.files === 1 ? "" : "s"}; files like ${r.files === 1 ? "it" : "them"} count as wanted now.` : "Its files are already in the inbox.");
+				$("filter").value = "new";
+				await load();
+				toggleTraining(true);
+			} catch (e) { fail(e); btn.disabled = false; }
+		};
+		const total = t.deleted + t.kept;
+		box.replaceChildren(
+			el("div", { class: "row" }, el("strong", {}, "What the email check learned"), el("span", { class: "spacer" }), el("button", { class: "btn small-btn", "aria-label": "Close", onclick: () => box.classList.add("hidden") }, "×")),
+			el("div", { class: "muted", style: "margin:0.2rem 0 0.5rem" }, total
+				? `From ${t.deleted} file${t.deleted === 1 ? "" : "s"} you deleted with "Delete and learn" and ${t.kept} you sent on. Later emails with files like the deleted ones, from the same sender, are skipped (listed below, so you can import them anyway).`
+				: 'Nothing yet. When you delete a file that came from email, choose "Delete and learn" and later files like it from that sender are skipped. Files you send on count as wanted.'),
+			t.senders.length ? el("table", { class: "review" },
+				el("thead", {}, el("tr", {}, el("th", {}, "Sender"), el("th", { class: "num" }, "Deleted"), el("th", { class: "num" }, "Kept"), el("th", {}))),
+				el("tbody", {}, ...t.senders.map((r) => el("tr", {},
+					el("td", { class: "wide" }, r.sender), el("td", { class: "num" }, String(r.deleted)), el("td", { class: "num" }, String(r.kept)),
+					el("td", {}, el("button", { class: "btn small-btn", onclick: () => forget({ sender: r.sender }, `what was learned about ${r.sender}`) }, "Forget")))))) : null,
+			sk.data.length ? el("div", { style: "margin-top:0.6rem" }, el("strong", {}, "Skipped emails"),
+				...sk.data.map((row) => {
+					const btn = el("button", { class: "btn small-btn" }, "Import anyway");
+					btn.onclick = () => importAnyway(row, btn);
+					return el("div", { class: "row", style: "margin-top:0.3rem;align-items:flex-start" },
+						el("div", { style: "flex:1;min-width:12rem" }, el("div", {}, row.subject || "(no subject)", el("span", { class: "muted" }, ` · ${row.mail_from}`)), el("div", { class: "muted" }, row.reason)),
+						btn);
+				})) : null,
+			el("div", { class: "actions", style: "margin-top:0.6rem" },
+				el("button", { class: "btn", onclick: download }, "Download the training file"),
+				el("label", { class: "btn" }, "Load a training file", loader),
+				total ? el("button", { class: "btn danger", onclick: () => forget({ all: true }, "everything the email check learned") }, "Forget everything") : null),
+		);
+	}
+
 	// ------------------------------------------------------------- Email (Settings → Import)
 	async function loadMail() {
 		let m;
@@ -831,7 +1099,8 @@
 				await load();
 			} catch (e) { fail(e); await loadMail(); }
 		} }, "Check email now");
-		box.replaceChildren(line, m.missing ? null : btn);
+		const learnedLink = el("a", { href: "#", onclick: (e) => { e.preventDefault(); toggleTraining(); } }, "What it learned");
+		box.replaceChildren(line, m.missing ? null : btn, learnedLink);
 	}
 
 	// ------------------------------------------------------------- start (?file= from Ledger's search bar, ?tab=scan)

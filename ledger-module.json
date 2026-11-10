@@ -1,7 +1,7 @@
 {
   "id": "downloads",
   "name": "Import",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Import files into Ledger: from your browser (the Send to Ledger extension, included), from email (Ledger's Gmail or IMAP), from a network scanner, from a phone's camera, or uploaded. Check them, read them with AI (you approve what it found), and send them on to Auto sort, other modules or Ledger's CSV import.",
   "ledger": ">=0.11.0",
   "server": "server.mjs",

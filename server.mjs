@@ -13,6 +13,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { capabilities, findScanners, normalizeScannerUrl, scan, ScannerError, status as scannerStatus } from "./lib/escl.mjs";
+import { readTrainingFile, TRAINING_FORMAT } from "./lib/learn.mjs";
 import { registerMail } from "./lib/mail.mjs";
 import { jpegsToPdf } from "./lib/pdf.mjs";
 
@@ -20,7 +21,7 @@ const CHUNK_SIZE = 512 * 1024; // bytes; base64 makes it ~700 KB, under Ledger's
 const STALE_UPLOAD_HOURS = 24;
 const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
-	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, updated_at`;
+	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, (mail_features IS NOT NULL) AS learnable, updated_at`;
 const CLIENT_ORIGINS = ["", "camera", "upload"]; // what the page and the extension may say; email and scanner are set here
 const FILE_KINDS = ["statement", "bill", "receipt", "transaction"]; // what ctx.files carries (Ledger >= 0.11.0)
 const ACCOUNT_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
@@ -221,22 +222,37 @@ export default async function register(ctx) {
 	}
 
 	/** Stores a whole file (from email or the scanner) in the inbox in one statement → its id. */
-	async function saveFile(name, type, data, { origin = "", detail = "", note = "", source_url = "", by }) {
+	async function saveFile(name, type, data, { origin = "", detail = "", note = "", source_url = "", by, features = null }) {
 		const chunks = [];
 		for (let i = 0; i < data.length; i += CHUNK_SIZE) chunks.push(data.subarray(i, i + CHUNK_SIZE));
 		const { rows } = await q(
 			`WITH f AS (
-				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail)
-				VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9) RETURNING id
+				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail, mail_features)
+				VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $11::text[]) RETURNING id
 			), c AS (
 				INSERT INTO ${T("file_chunks")} (file_id, idx, data)
 				SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($10::bytea[]) WITH ORDINALITY AS u(data, n)
 			)
 			SELECT id FROM f`,
-			[name.slice(0, 255), String(type).slice(0, 200), data.length, createHash("sha256").update(data).digest("hex"), source_url, note.slice(0, 1000), by, origin, detail.slice(0, 200), chunks],
+			[name.slice(0, 255), String(type).slice(0, 200), data.length, createHash("sha256").update(data).digest("hex"), source_url, note.slice(0, 1000), by, origin, detail.slice(0, 200), chunks, features],
 		);
 		ctx.log.info("file received", { file: String(rows[0].id), name, bytes: data.length, origin, by });
 		return rows[0].id;
+	}
+
+	/** Email files someone wanted (sent them on, or imported a skipped email): wanted examples, once each. */
+	async function learnKept(ids, source, by) {
+		const list = (Array.isArray(ids) ? ids : [ids]).filter((x) => x != null).map(String);
+		if (list.length === 0) return;
+		await q(
+			`WITH f AS (
+				UPDATE ${T("files")} SET mail_trained = true WHERE id = ANY($1::bigint[]) AND mail_features IS NOT NULL AND NOT mail_trained
+				RETURNING mail_features, origin_detail, note, name
+			)
+			INSERT INTO ${T("mail_training")} (label, features, sender, subject, file_name, source, created_by)
+			SELECT 1, mail_features, origin_detail, note, name, $2, $3 FROM f`,
+			[list, source, by],
+		);
 	}
 
 	// ---------------------------------------------------------------------
@@ -383,6 +399,7 @@ export default async function register(ctx) {
 			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = NULL, updated_at = now() WHERE id = $1`,
 			[f.id, to, link, req.user.username],
 		);
+		await learnKept(f.id, "sent", req.user.username);
 		await syncNotice();
 		return getFile(f.id);
 	});
@@ -422,6 +439,7 @@ export default async function register(ctx) {
 			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = $5, updated_at = now() WHERE id = $1`,
 			[f.id, `${target.name} (${b.kind})`.slice(0, 200), `/apps/${to}`, req.user.username, sent.id],
 		);
+		await learnKept(f.id, "sent", req.user.username);
 		ctx.log.info("file handed off", { file: String(f.id), to, kind: b.kind, module_file: String(sent.id), by: req.user.username });
 		await syncNotice();
 		return { ...(await getFile(f.id)), handoff: { status: sent.status, result: sent.result } };
@@ -608,6 +626,7 @@ export default async function register(ctx) {
 			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = NULL, updated_at = now() WHERE id = $1`,
 			[f.id, `extracted to ${name}`.slice(0, 200), `/apps/${ctx.id}?file=${id}`, req.user.username],
 		);
+		await learnKept(f.id, "sent", req.user.username);
 		ctx.log.info("extraction approved", { extraction: String(e.id), file: String(f.id), csv: String(id), transactions: tx.length, by: req.user.username });
 		await syncNotice();
 		return { ...(await getFile(id)), transactions: tx.length };
@@ -621,11 +640,84 @@ export default async function register(ctx) {
 		return getExtraction(e.id);
 	});
 
+	// DELETE /files/:id[?learn=1]: with learn=1 an email file also teaches the email check to skip files like it.
 	ctx.route("DELETE", "/files/:id", async (req) => {
 		const f = await getFile(req.params.id);
-		await q(`DELETE FROM ${T("files")} WHERE id = $1`, [f.id]);
+		const learn = req.query.get("learn") === "1";
+		const { rows } = await q(
+			`WITH gone AS (DELETE FROM ${T("files")} WHERE id = $1 RETURNING mail_features, origin_detail, note, name)
+			INSERT INTO ${T("mail_training")} (label, features, sender, subject, file_name, source, created_by)
+			SELECT -1, mail_features, origin_detail, note, name, 'delete', $2 FROM gone WHERE $3 AND mail_features IS NOT NULL
+			RETURNING id`,
+			[f.id, req.user.username, learn],
+		);
+		if (rows[0]) ctx.log.info("email check learned", { file: f.name, from: f.origin_detail, by: req.user.username });
 		await syncNotice();
+		return { deleted: true, learned: !!rows[0] };
 	});
+
+	// ---------------------------------------------------------------------
+	// What the email check learned (lib/learn.mjs), and the training file
+	// ---------------------------------------------------------------------
+
+	ctx.route("GET", "/training", async () => {
+		const [{ rows: counts }, { rows: senders }, { rows: examples }] = await Promise.all([
+			q(`SELECT count(*) FILTER (WHERE label < 0)::int AS deleted, count(*) FILTER (WHERE label > 0)::int AS kept FROM ${T("mail_training")}`),
+			q(
+				`SELECT substr(f, 6) AS sender, count(*) FILTER (WHERE label < 0)::int AS deleted, count(*) FILTER (WHERE label > 0)::int AS kept
+				   FROM ${T("mail_training")}, unnest(features) AS f WHERE f LIKE 'from:%'
+				  GROUP BY 1 ORDER BY 2 DESC, 3 DESC, 1 LIMIT 100`,
+			),
+			q(`SELECT id, label, sender, subject, file_name, source, created_by, created_at FROM ${T("mail_training")} ORDER BY id DESC LIMIT 200`),
+		]);
+		return { ...counts[0], senders, examples };
+	});
+
+	// GET /training/file: the training file (every example), to keep or load elsewhere.
+	ctx.route("GET", "/training/file", async () => {
+		const { rows } = await q(`SELECT label, features, sender, subject, file_name, source, created_at FROM ${T("mail_training")} ORDER BY id`);
+		return { format: TRAINING_FORMAT, version: 1, module: ctx.id, exported_at: new Date().toISOString(), examples: rows };
+	});
+
+	// POST /training/file {format, examples}: load a training file; examples already known are skipped.
+	ctx.route("POST", "/training/file", async (req) => {
+		let examples;
+		try {
+			examples = readTrainingFile(req.body);
+		} catch (err) {
+			throw bad(err.message);
+		}
+		const { rowCount } = await q(
+			`INSERT INTO ${T("mail_training")} (label, features, sender, subject, file_name, source, created_by)
+			 SELECT x.label, x.features, x.sender, x.subject, x.file_name, x.source, $2
+			   FROM (SELECT (e->>'label')::smallint AS label, ARRAY(SELECT jsonb_array_elements_text(e->'features')) AS features,
+			                e->>'sender' AS sender, e->>'subject' AS subject, e->>'file_name' AS file_name, e->>'source' AS source
+			           FROM jsonb_array_elements($1::jsonb) AS e) x
+			  WHERE NOT EXISTS (SELECT 1 FROM ${T("mail_training")} t WHERE t.label = x.label AND t.features = x.features)`,
+			[JSON.stringify(examples), req.user.username],
+		);
+		return { added: rowCount, skipped: examples.length - rowCount };
+	});
+
+	ctx.route("DELETE", "/training/:id", async (req) => {
+		if (!/^\d+$/.test(req.params.id)) throw new ctx.HttpError(404, "no such example");
+		const { rowCount } = await q(`DELETE FROM ${T("mail_training")} WHERE id = $1`, [req.params.id]);
+		if (!rowCount) throw new ctx.HttpError(404, "no such example");
+	});
+
+	// POST /training/forget {sender}: forget everything learned about one sender ("" or omitted: everything).
+	ctx.route("POST", "/training/forget", async (req) => {
+		const sender = req.body?.sender;
+		if (sender !== undefined && (typeof sender !== "string" || sender.length > 300)) throw bad("sender must be an email address");
+		if (!sender && req.body?.all !== true) throw bad('give a sender, or {"all": true} to forget everything');
+		const { rowCount } = sender
+			? await q(`DELETE FROM ${T("mail_training")} WHERE $1 = ANY(features)`, [`from:${sender.toLowerCase()}`])
+			: await q(`DELETE FROM ${T("mail_training")}`);
+		return { forgotten: rowCount };
+	});
+
+	// GET /me: who's asking and which Ledger, for the page (e.g. "+ New account…" needs Ledger 0.11.3).
+	ctx.route("GET", "/me", async (req) => ({ username: req.user.username, role: req.user.role, ledger: ctx.ledgerVersion, version: ctx.version }));
 
 	// ---------------------------------------------------------------------
 	// Housekeeping: abandoned uploads, and old sent/archived files when Settings say so
@@ -668,7 +760,7 @@ export default async function register(ctx) {
 	// Email (lib/mail.mjs)
 	// ---------------------------------------------------------------------
 
-	registerMail(ctx, { q, T, saveFile, maxBytes: async () => (await options()).maxBytes, syncNotice });
+	registerMail(ctx, { q, T, saveFile, maxBytes: async () => (await options()).maxBytes, syncNotice, learnKept });
 
 	// ---------------------------------------------------------------------
 	// Network scanner (lib/escl.mjs): set up by an admin, used by everyone. Scans run in the
@@ -748,7 +840,9 @@ export default async function register(ctx) {
 				const caps = await capabilities(url);
 				const r = await scan(url, caps, { source: b.source, color: b.color, resolution: b.resolution ?? 300, duplex: b.duplex, onPage: (n) => (job.pages = n) });
 				const jpegs = r.pages.filter((p) => p.type === "image/jpeg").map((p) => p.data);
-				const data = jpegs.length === r.pages.length ? jpegsToPdf(jpegs) : r.pages[0].data;
+				const isPdf = r.pages[0].data.subarray(0, 5).toString("latin1") === "%PDF-";
+				if (jpegs.length !== r.pages.length && !isPdf) throw new ScannerError(`the scanner sent ${r.pages[0].type} pages, which can't be made into a PDF here`);
+				const data = isPdf ? r.pages[0].data : jpegsToPdf(jpegs);
 				const { maxBytes } = await options();
 				if (data.length > maxBytes) throw new ScannerError(`the scan is ${(data.length / 1048576).toFixed(1)} MB, more than the ${maxBytes / 1048576} MB allowed under Settings → ${ctx.name}; scan at a lower resolution or in grey`);
 				const d = new Date();
