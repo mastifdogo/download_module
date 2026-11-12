@@ -37,8 +37,9 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
   - sent on to the [Auto sort](https://github.com/mastifdogo/auto-sort_module) module, as a
     statement whose transactions you review and post, or as a bill or receipt;
   - handed to **any other module that takes files** (Ledger's module file exchange): as a
-    statement (with the bank or card account it's for), bill, receipt or transaction list, with the
-    receiving module's result shown on the file;
+    statement (with the bank or card account it's for), bill, receipt or transaction list, or a CSV
+    as a customer or vendor list (Ledger 0.12.0+), with the receiving module's result shown on the
+    file;
   - saved to Ledger's CSV files for journal import;
   - run through **Extract data** (for files that aren't a CSV already: PDFs, photos (JPEG, PNG, GIF,
     WebP) and text files such as TXT, OFX, QFX, HTML, XML, JSON, EML): the LLM set up under
@@ -182,6 +183,14 @@ and the scanner get `origin` `email` / `scanner` and `origin_detail` (the sender
 
 Uploads that never complete are removed after a day.
 
+## Backups
+
+Ledger's backups include the inbox: the database dump has every file, and from Ledger 0.13.0 each
+of this module's tables is also saved as a CSV beside it (`files`, `extractions`, `mail_seen`,
+`mail_training`, `email_check_state`, `file_chunks`). The file bytes are in `file_chunks`, so a big
+inbox makes big backups; *Delete sent and archived files after* (Settings → Import) keeps it in
+check. No passwords are kept in tables (the IMAP password is a protected setting).
+
 ## Privacy
 
 Files are stored in Ledger's database (and its backups) until you delete them, or until the days
@@ -203,7 +212,8 @@ lib/escl.mjs           network scanners: eSCL / AirScan, mDNS discovery, local-n
 lib/pdf.mjs            JPEG pages -> PDF
 lib/learn.mjs          what the email check learns: features, naive Bayes per sender, training file
 migrations/            files and file_chunks (schema mod_downloads); 002 module hand-offs; 003 AI
-                       extractions; 004 file origins, the email log; 005 email training
+                       extractions; 004 file origins, the email log; 005 email training; 006 clearer
+                       names for Ledger 0.13.0's backup CSVs
 ui/index.html          the Import page: inbox, forwarding, AI review, Scan (scanner, camera, upload), the extension download
 ui/receipt.js          finding, straightening and cleaning up a receipt in a photo (canvas, no libraries)
 ui/scan-bridge/        the USB scan bridge: Windows (PowerShell, WIA) and Mac/Linux (Python, SANE)
@@ -225,6 +235,10 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.6.0:** For Ledger 0.13.0: clearer table and column names for the CSV copies Ledger now saves
+  with each backup (`file_chunks.chunk_index`, `email_check_state`, `extractions.transactions`). A
+  CSV in the inbox can be sent as a customer or vendor list to a module that keeps them (Ledger
+  0.12.0+).
 - **0.5.0:** The email check learns: *Delete and learn* on an email file skips files like it from
   that sender later (files sent on count as wanted); skipped emails are listed with *Import
   anyway*; a downloadable training file. USB scanners on a PC (or the Ledger server) through the

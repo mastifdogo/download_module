@@ -248,12 +248,14 @@
 	// ------------------------------------------------------------- other modules that take files (ctx.files, Ledger ≥ 0.11.0)
 	let targets = null; // [{ id, name, accepts }]
 	let accounts = null; // Ledger's bank and card accounts, for statements handed to a module
-	const KIND_LABEL = { statement: "statement", bill: "bill", receipt: "receipt", transaction: "transaction list" };
+	const KIND_LABEL = { statement: "statement", bill: "bill", receipt: "receipt", transaction: "transaction list", customer: "customer list", vendor: "vendor list" };
 	const KIND_FITS = {
 		statement: /\.(csv|ofx|qfx|qbo|pdf|txt)$/i,
 		transaction: /\.(csv|tsv|json|xml|ofx|qfx|qbo)$/i,
 		bill: /\.(pdf|eml|png|jpe?g|webp|heic|gif)$/i,
 		receipt: /\.(pdf|eml|png|jpe?g|webp|heic|gif)$/i,
+		customer: /\.(csv|tsv)$/i,
+		vendor: /\.(csv|tsv)$/i,
 	};
 	async function checkTargets() {
 		if (targets !== null) return targets;
@@ -272,7 +274,8 @@
 		const out = [];
 		for (const t of targets || []) {
 			const fit = t.accepts.filter((k) => KIND_FITS[k]?.test(f.name));
-			for (const k of fit.length ? fit : t.accepts) out.push([`mod:${t.id}:${k}`, `${t.name}: ${KIND_LABEL[k] || k}`]);
+			// Customer and vendor lists only fit list files (CSV); everything else falls back to what the module takes.
+			for (const k of fit.length ? fit : t.accepts.filter((k) => k !== "customer" && k !== "vendor")) out.push([`mod:${t.id}:${k}`, `${t.name}: ${KIND_LABEL[k] || k}`]);
 		}
 		return out;
 	}

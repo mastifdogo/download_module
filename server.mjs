@@ -23,7 +23,7 @@ const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
 	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, (mail_features IS NOT NULL) AS learnable, updated_at`;
 const CLIENT_ORIGINS = ["", "camera", "upload"]; // what the page and the extension may say; email and scanner are set here
-const FILE_KINDS = ["statement", "bill", "receipt", "transaction"]; // what ctx.files carries (Ledger >= 0.11.0)
+const FILE_KINDS = ["statement", "bill", "receipt", "transaction", "customer", "vendor"]; // what ctx.files carries (customer, vendor: Ledger >= 0.12.0)
 const ACCOUNT_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
 // ---------------------------------------------------------------------------
@@ -230,7 +230,7 @@ export default async function register(ctx) {
 				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail, mail_features)
 				VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $11::text[]) RETURNING id
 			), c AS (
-				INSERT INTO ${T("file_chunks")} (file_id, idx, data)
+				INSERT INTO ${T("file_chunks")} (file_id, chunk_index, data)
 				SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($10::bytea[]) WITH ORDINALITY AS u(data, n)
 			)
 			SELECT id FROM f`,
@@ -327,7 +327,7 @@ export default async function register(ctx) {
 		const expected = index === chunks - 1 ? Number(f.size_bytes) - index * CHUNK_SIZE : CHUNK_SIZE;
 		if (data.length !== expected) throw bad(`chunk ${index} must be ${expected} bytes, got ${data.length}`);
 		await q(
-			`INSERT INTO ${T("file_chunks")} (file_id, idx, data) VALUES ($1, $2, $3) ON CONFLICT (file_id, idx) DO UPDATE SET data = EXCLUDED.data`,
+			`INSERT INTO ${T("file_chunks")} (file_id, chunk_index, data) VALUES ($1, $2, $3) ON CONFLICT (file_id, chunk_index) DO UPDATE SET data = EXCLUDED.data`,
 			[f.id, index, data],
 		);
 	});
@@ -335,10 +335,10 @@ export default async function register(ctx) {
 	ctx.route("POST", "/files/:id/complete", async (req) => {
 		const f = await getFile(req.params.id);
 		if (f.status !== "uploading") return f;
-		const { rows } = await q(`SELECT idx, data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY idx`, [f.id]);
+		const { rows } = await q(`SELECT chunk_index, data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [f.id]);
 		const chunks = Math.ceil(Number(f.size_bytes) / CHUNK_SIZE);
 		const missing = [];
-		for (let i = 0; i < chunks; i++) if (rows[i]?.idx !== i) missing.push(i);
+		for (let i = 0; i < chunks; i++) if (rows[i]?.chunk_index !== i) missing.push(i);
 		if (missing.length > 0) throw new ctx.HttpError(409, `chunks missing: ${missing.slice(0, 10).join(", ")}`);
 		const hash = createHash("sha256");
 		for (const r of rows) hash.update(r.data);
@@ -383,7 +383,7 @@ export default async function register(ctx) {
 	ctx.route("GET", "/files/:id/content", async (req) => {
 		const f = await getFile(req.params.id);
 		if (f.status === "uploading") throw new ctx.HttpError(409, "this file hasn't finished uploading");
-		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY idx`, [f.id]);
+		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [f.id]);
 		return { id: f.id, name: f.name, content_type: f.content_type, size_bytes: f.size_bytes, data: Buffer.concat(rows.map((r) => r.data)).toString("base64") };
 	});
 
@@ -429,7 +429,7 @@ export default async function register(ctx) {
 		if (f.source_url) meta.source_url = f.source_url;
 		const note = b.note === undefined ? f.note : b.note;
 		if (typeof note !== "string" || note.length > 2000) throw bad("note must be text of at most 2000 characters");
-		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY idx`, [f.id]);
+		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [f.id]);
 		const data = Buffer.concat(rows.map((r) => r.data));
 		const sent = await ctx.files.send(
 			{ to, kind: b.kind, filename: f.name, data, contentType: /^[\w.+-]+\/[\w.+-]+$/.test(f.content_type.split(";")[0].trim()) ? f.content_type.split(";")[0].trim() : "application/octet-stream", meta, note },
@@ -508,7 +508,7 @@ export default async function register(ctx) {
 			throw new ctx.HttpError(409, "reading PDFs needs an LLM connection for images (Claude reads any PDF; another vision model reads scanned ones) under Settings → LLM API");
 		}
 
-		const { rows: parts } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY idx`, [f.id]);
+		const { rows: parts } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [f.id]);
 		const bytes = Buffer.concat(parts.map((r) => r.data));
 		const ask = {
 			system: EXTRACT_SYSTEM,
@@ -549,7 +549,7 @@ export default async function register(ctx) {
 		// Only a suggestion: nothing is created or changed until a person approves it.
 		await q(`UPDATE ${T("extractions")} SET status = 'rejected', decided_by = $2, decided_at = now() WHERE file_id = $1 AND status = 'pending'`, [f.id, req.user.username]);
 		const { rows } = await q(
-			`INSERT INTO ${T("extractions")} (file_id, model, currency, instructions, rows, created_by) VALUES ($1, $2, $3, $4, $5::jsonb, $6) RETURNING id`,
+			`INSERT INTO ${T("extractions")} (file_id, model, currency, instructions, transactions, created_by) VALUES ($1, $2, $3, $4, $5::jsonb, $6) RETURNING id`,
 			[f.id, String(result.model ?? "").slice(0, 200), currency, typeof extra === "string" ? extra.trim() : "", JSON.stringify(tx), req.user.username],
 		);
 		ctx.log.info("data extracted for review", { file: String(f.id), extraction: String(rows[0].id), transactions: tx.length, model: result.model, by: req.user.username });
@@ -560,7 +560,7 @@ export default async function register(ctx) {
 	async function getExtraction(id) {
 		if (!/^\d+$/.test(String(id))) throw new ctx.HttpError(404, "no such extraction");
 		const { rows } = await q(
-			`SELECT e.id, e.file_id, f.name AS file_name, e.status, e.model, e.currency, e.instructions, e.rows, e.created_by, e.created_at, e.decided_by, e.decided_at, e.csv_file_id
+			`SELECT e.id, e.file_id, f.name AS file_name, e.status, e.model, e.currency, e.instructions, e.transactions AS rows, e.created_by, e.created_at, e.decided_by, e.decided_at, e.csv_file_id
 			   FROM ${T("extractions")} e JOIN ${T("files")} f ON f.id = e.file_id WHERE e.id = $1`,
 			[id],
 		);
@@ -573,7 +573,7 @@ export default async function register(ctx) {
 		const status = req.query.get("status") || "pending";
 		if (!["pending", "approved", "rejected", "all"].includes(status)) throw bad("status must be pending, approved, rejected or all");
 		const { rows } = await q(
-			`SELECT e.id, e.file_id, f.name AS file_name, e.status, e.model, e.currency, jsonb_array_length(e.rows) AS transactions, e.created_by, e.created_at, e.decided_by, e.decided_at, e.csv_file_id
+			`SELECT e.id, e.file_id, f.name AS file_name, e.status, e.model, e.currency, jsonb_array_length(e.transactions) AS transactions, e.created_by, e.created_at, e.decided_by, e.decided_at, e.csv_file_id
 			   FROM ${T("extractions")} e JOIN ${T("files")} f ON f.id = e.file_id WHERE ($1 = 'all' OR e.status = $1) ORDER BY e.id DESC LIMIT 200`,
 			[status],
 		);
@@ -607,13 +607,13 @@ export default async function register(ctx) {
 		// One statement: the file, its bytes, and the suggestion marked approved appear together, once.
 		const { rows } = await q(
 			`WITH claim AS (
-				UPDATE ${T("extractions")} SET status = 'approved', decided_by = $6, decided_at = now(), rows = $8::jsonb
+				UPDATE ${T("extractions")} SET status = 'approved', decided_by = $6, decided_at = now(), transactions = $8::jsonb
 				 WHERE id = $9 AND status = 'pending' RETURNING id
 			), f AS (
 				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by)
 				SELECT $1, 'text/csv', $2, $3, 'new', $4, $5, $6 FROM claim RETURNING id
 			), c AS (
-				INSERT INTO ${T("file_chunks")} (file_id, idx, data)
+				INSERT INTO ${T("file_chunks")} (file_id, chunk_index, data)
 				SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($7::bytea[]) WITH ORDINALITY AS u(data, n)
 			)
 			SELECT id FROM f`,

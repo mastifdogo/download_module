@@ -57,6 +57,11 @@ feature the module uses (the context file says which version added what;
   pending suggestion, shown in the UI, and acted on only by an explicit POST
   from a user (`req.user`), who can edit or reject it. Never act on it from a
   background job or `onReceive`, and no auto-approve setting.
+- Backups (Ledger ≥ 0.13.0) save every table of this schema as a CSV beside
+  the dump: keep table and column names readable, and no secrets in tables.
+  `file_chunks` holds every file's bytes, so it is the big one.
+- Ledger runs in a Debian 12 container: the server code spawns no programs
+  (the scan bridge runs on the user's own computer, not in Ledger).
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.
 
 ## 3. Check before saying it works
@@ -96,7 +101,9 @@ leave pushing it to them. The module must work without that change.
    General → Workflow permissions → "Read and write permissions"; then
    Actions → Release → Run workflow.
 3. Ledger installs it on its update schedule or with "Update modules now"
-   (Settings → Modules).
+   (Settings → Modules), or when the server starts if "Update when the
+   server starts" is on (Settings → Updates, Ledger 0.12.1). Tell the user
+   which of these picks it up; "Update modules now" is the quickest.
 
 ## This module: Import (`id: downloads`, kept from its old name Downloads; schema `mod_downloads`)
 
@@ -112,7 +119,8 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   `keep_days` are per organization from Ledger 0.11.1, so `options()` is
   read per request and per organization in the clean-up.
 - `POST /files/:id/handoff {to, kind, account_code?}` hands a file to any
-  module that accepts that kind through `ctx.files` (`GET /targets` lists
+  module that accepts that kind (statement, bill, receipt, transaction;
+  customer and vendor lists for CSVs, Ledger 0.12.0) through `ctx.files` (`GET /targets` lists
   them); `sent_file_id` (migration 002) links the outbox entry so `GET /files`
   shows the receiver's status and result (`handoff`).
 - `POST /files/:id/extract` reads a non-CSV file (PDF when the provider
