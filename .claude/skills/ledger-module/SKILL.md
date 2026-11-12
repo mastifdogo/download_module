@@ -57,9 +57,13 @@ feature the module uses (the context file says which version added what;
   pending suggestion, shown in the UI, and acted on only by an explicit POST
   from a user (`req.user`), who can edit or reject it. Never act on it from a
   background job or `onReceive`, and no auto-approve setting.
-- Backups (Ledger ≥ 0.13.0) save every table of this schema as a CSV beside
-  the dump: keep table and column names readable, and no secrets in tables.
-  `file_chunks` holds every file's bytes, so it is the big one.
+- Backups (Ledger ≥ 0.13.0) save every table of this schema as a CSV in each
+  backup's folder, next to the dump: keep table and column names readable,
+  and no secrets in tables. `file_chunks` holds every file's bytes, so it is
+  the big one; from Ledger 0.13.1 binary columns show only their size in the
+  CSV (0.13.0 wrote base64, which a large inbox can make fail). A file's
+  name, type, size, hash and dates are readable in `files`, which
+  `file_chunks.file_id` points to.
 - Ledger runs in a Debian 12 container: the server code spawns no programs
   (the scan bridge runs on the user's own computer, not in Ledger).
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.

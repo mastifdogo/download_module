@@ -187,9 +187,11 @@ Uploads that never complete are removed after a day.
 
 Ledger's backups include the inbox: the database dump has every file, and from Ledger 0.13.0 each
 of this module's tables is also saved as a CSV beside it (`files`, `extractions`, `mail_seen`,
-`mail_training`, `email_check_state`, `file_chunks`). The file bytes are in `file_chunks`, so a big
-inbox makes big backups; *Delete sent and archived files after* (Settings → Import) keeps it in
-check. No passwords are kept in tables (the IMAP password is a protected setting).
+`mail_training`, `email_check_state`, `file_chunks`). The file bytes are in `file_chunks` (each
+row's `file_id` is a file in `files`, with its name, type, size and dates). From Ledger 0.13.1 that
+CSV shows only each chunk's size; Ledger 0.13.0 writes the bytes as base64, which makes backups big
+and can make them fail once the inbox holds a few hundred MB, so update Ledger. *Delete sent and
+archived files after* (Settings → Import) keeps the inbox in check. No passwords are kept in tables (the IMAP password is a protected setting).
 
 ## Privacy
 
