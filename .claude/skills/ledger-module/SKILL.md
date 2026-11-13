@@ -66,6 +66,20 @@ feature the module uses (the context file says which version added what;
   make fail). A file's
   name, type, size, hash and dates are readable in `files`, which
   `file_chunks.file_id` points to.
+- Restores (Ledger ≥ 0.14.0) replace this schema's tables and its
+  `ctx.storage` files with a backup's; a restore from an uploaded dump
+  (0.14.2) replaces only the tables. So a `files.storage_path` may point at
+  nothing (`GET /files` marks it `missing`, `fileBytes` answers 410) and
+  stored files may have no row (`removeOrphans` in the hourly clean-up,
+  only once they're an hour old: `saveFile` stores before inserting).
+  Settings stay as they were. Nothing kept in memory must match the tables
+  (scan jobs are in memory and simply end with a restart).
+- Accounts (Ledger 0.15–0.16): pickers list accounts tagged `kind`
+  (chequing, savings, credit_card) first, then all as a tree by
+  `parent_code` (`accountChoices` in ui/index.html); older Ledger has
+  neither field and gets one flat list. Import keeps no customer or vendor
+  names, so `ctx.entities` doesn't apply; CSV lists can be handed on as
+  `entity` files (0.16.0).
 - Ledger runs in a Debian 12 container: the server code spawns no programs
   (the scan bridge runs on the user's own computer, not in Ledger).
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.
@@ -126,7 +140,7 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   read per request and per organization in the clean-up.
 - `POST /files/:id/handoff {to, kind, account_code?}` hands a file to any
   module that accepts that kind (statement, bill, receipt, transaction;
-  customer and vendor lists for CSVs, Ledger 0.12.0) through `ctx.files` (`GET /targets` lists
+  customer, vendor and entity lists for CSVs, Ledger 0.12.0 / 0.16.0) through `ctx.files` (`GET /targets` lists
   them); `sent_file_id` (migration 002) links the outbox entry so `GET /files`
   shows the receiver's status and result (`handoff`).
 - `POST /files/:id/extract` reads a non-CSV file (PDF when the provider

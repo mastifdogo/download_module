@@ -248,7 +248,7 @@
 	// ------------------------------------------------------------- other modules that take files (ctx.files, Ledger ≥ 0.11.0)
 	let targets = null; // [{ id, name, accepts }]
 	let accounts = null; // Ledger's bank and card accounts, for statements handed to a module
-	const KIND_LABEL = { statement: "statement", bill: "bill", receipt: "receipt", transaction: "transaction list", customer: "customer list", vendor: "vendor list" };
+	const KIND_LABEL = { statement: "statement", bill: "bill", receipt: "receipt", transaction: "transaction list", customer: "customer list", vendor: "vendor list", entity: "customer and vendor list" };
 	const KIND_FITS = {
 		statement: /\.(csv|ofx|qfx|qbo|pdf|txt)$/i,
 		transaction: /\.(csv|tsv|json|xml|ofx|qfx|qbo)$/i,
@@ -256,18 +256,42 @@
 		receipt: /\.(pdf|eml|png|jpe?g|webp|heic|gif)$/i,
 		customer: /\.(csv|tsv)$/i,
 		vendor: /\.(csv|tsv)$/i,
+		entity: /\.(csv|tsv)$/i,
 	};
 	async function checkTargets() {
 		if (targets !== null) return targets;
 		try { targets = (await api("/targets")).data; } catch { targets = []; }
 		return targets;
 	}
+	/** Ledger's bank and card accounts (asset and liability) for statements, with their tags and sub-accounts. */
 	async function bankAccounts() {
-		if (autosort) return autosort.accounts;
 		if (accounts === null) {
 			try { accounts = (await call("/api/v1/accounts")).data.filter((a) => a.type === "asset" || a.type === "liability"); } catch { accounts = []; }
 		}
 		return accounts;
+	}
+	const KIND_NAME = { chequing: "chequing", savings: "savings", credit_card: "credit card" };
+	/**
+	 * The account picker's choices: accounts tagged chequing, savings or credit card first (Ledger 0.16+),
+	 * then the rest as a tree, sub-accounts indented under their parent (Ledger 0.15+). Older Ledger: one list.
+	 */
+	function accountChoices(list, option) {
+		const tagged = list.filter((a) => a.kind);
+		const byParent = new Map();
+		const codes = new Set(list.map((a) => a.code));
+		for (const a of list) {
+			const p = a.parent_code && codes.has(a.parent_code) ? a.parent_code : "";
+			(byParent.get(p) ?? byParent.set(p, []).get(p)).push(a);
+		}
+		const tree = [];
+		const walk = (p, depth) => { for (const a of (byParent.get(p) ?? []).sort((x, y) => x.code.localeCompare(y.code))) { tree.push([a, depth]); if (depth < 6) walk(a.code, depth + 1); } };
+		walk("", 0);
+		const indented = tree.map(([a, depth]) => option(a, depth));
+		if (tagged.length === 0) return indented;
+		return [
+			el("optgroup", { label: "Bank and card accounts" }, ...tagged.sort((x, y) => x.code.localeCompare(y.code)).map((a) => option(a, 0))),
+			el("optgroup", { label: "All asset and liability accounts" }, ...indented),
+		];
 	}
 	/** [value, label] choices for handing this file to another module. */
 	function moduleOptions(f) {
@@ -275,7 +299,7 @@
 		for (const t of targets || []) {
 			const fit = t.accepts.filter((k) => KIND_FITS[k]?.test(f.name));
 			// Customer and vendor lists only fit list files (CSV); everything else falls back to what the module takes.
-			for (const k of fit.length ? fit : t.accepts.filter((k) => k !== "customer" && k !== "vendor")) out.push([`mod:${t.id}:${k}`, `${t.name}: ${KIND_LABEL[k] || k}`]);
+			for (const k of fit.length ? fit : t.accepts.filter((k) => !["customer", "vendor", "entity"].includes(k))) out.push([`mod:${t.id}:${k}`, `${t.name}: ${KIND_LABEL[k] || k}`]);
 		}
 		return out;
 	}
@@ -310,7 +334,7 @@
 		$("empty").classList.toggle("hidden", files.length > 0);
 		$("files").classList.toggle("hidden", files.length === 0);
 		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail(), me ? null : api("/me").then((x) => (me = x), () => (me = { role: "viewer" }))]);
-		if ((targets || []).some((t) => t.accepts.includes("statement"))) await bankAccounts();
+		if (autosort || (targets || []).some((t) => t.accepts.includes("statement"))) await bankAccounts();
 		render();
 	}
 
@@ -387,6 +411,12 @@
 
 	function actions(f) {
 		const b = (text, fn, cls = "btn") => el("button", { class: cls, onclick: fn }, text);
+		if (f.missing) {
+			// After a restore from a dump file, which brings back only the tables: the row is back, the file isn't.
+			return el("div", {},
+				el("div", { class: "small bad" }, "The file itself is missing from Ledger's file storage (a restore from a dump file brings back only the list). Delete it, or restore a full backup."),
+				el("div", { class: "actions" }, b("Delete", () => confirm(`Delete ${f.name} from the list?`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail), "btn danger")));
+		}
 		return el("div", { class: "actions" },
 			b("Send…", () => { openId = openId === f.id ? null : f.id; render(); }, "btn primary"),
 			viewable(f) ? b("Open", () => window.open(f.url, "_blank", "noopener")) : null,
@@ -428,9 +458,9 @@
 			return box;
 		}
 		const dest = el("select", {}, ...opts.map(([v, t]) => el("option", { value: v }, t)));
-		const acctList = autosort ? autosort.accounts : accounts || [];
-		const acctOption = (a) => el("option", { value: a.code }, `${a.code} · ${a.name} (${a.type}, ${a.currency})`);
-		const account = el("select", {}, el("option", { value: "" }, "Choose the bank or card account…"), ...acctList.map(acctOption), canAddAccount() ? el("option", { value: NEW_ACCOUNT }, "+ New account…") : null);
+		const acctList = accounts?.length ? accounts : autosort ? autosort.accounts : [];
+		const acctOption = (a, depth = 0) => el("option", { value: a.code }, `${"\u2003".repeat(depth)}${a.code} · ${a.name} (${a.kind ? KIND_NAME[a.kind] || a.kind : a.type}, ${a.currency})`);
+		const account = el("select", {}, el("option", { value: "" }, "Choose the bank or card account…"), ...accountChoices(acctList, acctOption), canAddAccount() ? el("option", { value: NEW_ACCOUNT }, "+ New account…") : null);
 		const flipLabel = el("label", { class: "inline" });
 		const flip = el("input", { type: "checkbox" });
 		flipLabel.append(flip, "Purchases show as positive amounts (flip signs)");

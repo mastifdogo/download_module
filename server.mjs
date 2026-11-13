@@ -23,7 +23,7 @@ const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
 	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, (mail_features IS NOT NULL) AS learnable, storage_path, updated_at`;
 const CLIENT_ORIGINS = ["", "camera", "upload"]; // what the page and the extension may say; email and scanner are set here
-const FILE_KINDS = ["statement", "bill", "receipt", "transaction", "customer", "vendor"]; // what ctx.files carries (customer, vendor: Ledger >= 0.12.0)
+const FILE_KINDS = ["statement", "bill", "receipt", "transaction", "customer", "vendor", "entity"]; // what ctx.files carries (customer, vendor: Ledger >= 0.12.0; entity: 0.16.0)
 const ACCOUNT_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 
 // ---------------------------------------------------------------------------
@@ -253,7 +253,7 @@ export default async function register(ctx) {
 		}
 		if (!hasStorage()) throw new ctx.HttpError(409, "this file is in Ledger's file storage, which this Ledger doesn't have; update Ledger");
 		const got = await ctx.storage.get(f.storage_path);
-		if (!got) throw new ctx.HttpError(410, "this file is missing from Ledger's file storage (it may have been removed from the data share)");
+		if (!got) throw new ctx.HttpError(410, "this file is missing from Ledger's file storage (after a restore from a dump file, which brings back only the tables, or removed from the data share); delete it from the inbox");
 		return got.data;
 	}
 	/** Moves a complete file's bytes from file_chunks to ctx.storage → the bytes (undefined if it moved meanwhile). */
@@ -435,7 +435,14 @@ export default async function register(ctx) {
 				if (o) r.handoff = { status: o.status, result: o.result };
 			}
 		}
-		return { data: rows.map(withUrl), counts: Object.fromEntries(counts.map((c) => [c.status, c.n])) };
+		// After a restore from a dump file (tables only, Ledger 0.14.2) a row can point at a stored file that isn't there.
+		const data = rows.map(withUrl);
+		if (hasStorage()) {
+			await Promise.all(data.map(async (r) => {
+				if (r.storage_path && !(await ctx.storage.stat(r.storage_path).catch(() => null))) Object.assign(r, { missing: true, url: null });
+			}));
+		}
+		return { data, counts: Object.fromEntries(counts.map((c) => [c.status, c.n])) };
 	});
 
 	ctx.route("GET", "/files/:id", async (req) => getFile(req.params.id));
@@ -820,13 +827,33 @@ export default async function register(ctx) {
 		if (moved) ctx.log.info("moved files to Ledger's file storage", { org: String(org.id), files: moved, more: rows.length === 200 });
 	}
 
+	/**
+	 * Stored files no row points to (after a restore from a dump file, which brings back older tables
+	 * but leaves the stored files as they were): removed once they're an hour old, so a file being
+	 * saved right now (stored first, then its row) is never taken.
+	 */
+	async function removeOrphans(org) {
+		const stored = await ctx.storage.list("inbox").catch(() => []);
+		if (stored.length === 0) return;
+		const { rows } = await q(`SELECT storage_path FROM ${T("files")} WHERE storage_path IS NOT NULL`);
+		const known = new Set(rows.map((r) => r.storage_path));
+		const hourAgo = Date.now() - 3600_000;
+		const orphans = stored.filter((f) => !known.has(f.path) && new Date(f.modified_at).getTime() < hourAgo).map((f) => f.path);
+		if (orphans.length === 0) return;
+		await removeStored(orphans);
+		ctx.log.info("removed stored files no inbox row points to (e.g. after a restore)", { org: String(org.id), files: orphans.length });
+	}
+
 	async function cleanUp() {
 		await eachOrg("clean-up", async (org) => {
 			const { keepDays } = await options(); // each organization has its own settings (Ledger >= 0.11.1)
 			const a = await q(`DELETE FROM ${T("files")} WHERE status = 'uploading' AND received_at < now() - make_interval(hours => $1)`, [STALE_UPLOAD_HOURS]);
 			const b = keepDays > 0 ? await q(`DELETE FROM ${T("files")} WHERE status IN ('sent', 'archived') AND updated_at < now() - make_interval(days => $1) RETURNING storage_path`, [keepDays]) : { rowCount: 0, rows: [] };
 			await removeStored(b.rows.map((r) => r.storage_path));
-			if (hasStorage()) await moveOldFiles(org);
+			if (hasStorage()) {
+				await moveOldFiles(org);
+				await removeOrphans(org);
+			}
 			if (a.rowCount + b.rowCount > 0) {
 				ctx.log.info("cleaned up", { org: String(org.id), abandoned_uploads: a.rowCount, old_files: b.rowCount });
 				await syncNotice();

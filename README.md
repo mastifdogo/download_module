@@ -37,9 +37,10 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
   - sent on to the [Auto sort](https://github.com/mastifdogo/auto-sort_module) module, as a
     statement whose transactions you review and post, or as a bill or receipt;
   - handed to **any other module that takes files** (Ledger's module file exchange): as a
-    statement (with the bank or card account it's for), bill, receipt or transaction list, or a CSV
-    as a customer or vendor list (Ledger 0.12.0+), with the receiving module's result shown on the
-    file;
+    statement (with the bank or card account it's for: accounts tagged chequing, savings or credit
+    card come first, sub-accounts under their parent), bill, receipt or transaction list, or a CSV as
+    a customer, vendor or customer-and-vendor list (Ledger 0.12.0+ / 0.16.0+), with the receiving
+    module's result shown on the file;
   - saved to Ledger's CSV files for journal import;
   - run through **Extract data** (for files that aren't a CSV already: PDFs, photos (JPEG, PNG, GIF,
     WebP) and text files such as TXT, OFX, QFX, HTML, XML, JSON, EML): the LLM set up under
@@ -197,6 +198,11 @@ name, type, size, where it came from, `storage_path`), `extractions`, `mail_seen
 Import) keeps the inbox, and so the backups, in check. No passwords are kept in tables (the IMAP
 password is a protected setting).
 
+**Restores** (Ledger 0.14.0+): restoring an organization's full backup brings back its inbox and
+its files together. A restore from an uploaded dump file brings back only the list: files whose
+stored copy isn't there are marked *missing* (delete them, or restore a full backup), and stored
+files no longer in the list are removed by the hourly clean-up once they're an hour old.
+
 On Ledger 0.13.0 the CSV copies wrote file bytes as base64, which made backups big and could make
 them fail with a large inbox; 0.13.1 fixed that. Update Ledger if you're on 0.13.0.
 
@@ -244,6 +250,10 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.8.0:** For Ledger 0.14–0.16: after a restore, inbox files whose stored copy is missing are
+  marked (and stored files no longer listed are cleaned up). The statement account picker lists
+  accounts tagged chequing, savings or credit card first, and sub-accounts under their parent. CSV
+  lists can go to modules that accept customer-and-vendor lists (`entity`).
 - **0.7.0:** For Ledger 0.13.2: inbox files are kept in Ledger's file storage instead of the
   database, so backups carry them as real files; older files move there on their own. PDFs,
   pictures and text open in a new tab (*Open*), and downloads come straight from storage. Older
