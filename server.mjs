@@ -11,7 +11,7 @@
 //   POST /files/:id/complete                              -> the file
 // Chunks keep each request under Ledger's 1 MiB JSON limit.
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { capabilities, findScanners, normalizeScannerUrl, scan, ScannerError, status as scannerStatus } from "./lib/escl.mjs";
 import { readTrainingFile, TRAINING_FORMAT } from "./lib/learn.mjs";
 import { registerMail } from "./lib/mail.mjs";
@@ -21,7 +21,7 @@ const CHUNK_SIZE = 512 * 1024; // bytes; base64 makes it ~700 KB, under Ledger's
 const STALE_UPLOAD_HOURS = 24;
 const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
-	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, (mail_features IS NOT NULL) AS learnable, updated_at`;
+	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, (mail_features IS NOT NULL) AS learnable, storage_path, updated_at`;
 const CLIENT_ORIGINS = ["", "camera", "upload"]; // what the page and the extension may say; email and scanner are set here
 const FILE_KINDS = ["statement", "bill", "receipt", "transaction", "customer", "vendor"]; // what ctx.files carries (customer, vendor: Ledger >= 0.12.0)
 const ACCOUNT_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
@@ -218,24 +218,84 @@ export default async function register(ctx) {
 		if (!/^\d+$/.test(String(id))) throw notFound();
 		const { rows } = await q(`SELECT ${FILE_COLUMNS} FROM ${T("files")} WHERE id = $1`, [id]);
 		if (!rows[0]) throw notFound();
-		return rows[0];
+		return withUrl(rows[0]);
 	}
 
-	/** Stores a whole file (from email or the scanner) in the inbox in one statement → its id. */
+	// ---------------------------------------------------------------------
+	// Where file bytes live: Ledger's module file storage (ctx.storage, Ledger >= 0.13.2: on the data
+	// share and in every backup folder as real files), or file_chunks on older Ledger and for uploads
+	// still arriving. Everything reads bytes through fileBytes().
+	// ---------------------------------------------------------------------
+
+	const hasStorage = () => typeof ctx.storage?.put === "function";
+	/** A file's row with the address the browser opens it at (stored files only). */
+	const withUrl = (r) => ({ ...r, url: r.storage_path && hasStorage() ? ctx.storage.url(r.storage_path) : null });
+	/** "inbox/<random>/<the file's own name, made safe>": the download keeps the file's name. */
+	function newStoragePath(name) {
+		let safe = String(name).replace(/[^A-Za-z0-9._ ()-]+/g, "_").replace(/\.tmp$/i, "_tmp").slice(-120).trim();
+		if (!/^[A-Za-z0-9]/.test(safe)) safe = `file ${safe}`.slice(0, 120);
+		return `inbox/${randomBytes(6).toString("hex")}/${safe || "file"}`;
+	}
+	async function chunkBytes(id) {
+		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [id]);
+		return Buffer.concat(rows.map((r) => r.data));
+	}
+	async function fileBytes(f) {
+		if (!f.storage_path) {
+			// Not moved yet: move it now (it's being read anyway), or read it from file_chunks.
+			if (hasStorage() && f.status !== "uploading") {
+				const moved = await moveToStorage(f).catch((err) => void ctx.log.warn("couldn't move a file to storage; it stays in file_chunks", { file: String(f.id), err: String(err?.message || err) }));
+				if (moved) return moved;
+				const { rows } = await q(`SELECT storage_path FROM ${T("files")} WHERE id = $1`, [f.id]);
+				if (rows[0]?.storage_path) return fileBytes({ ...f, storage_path: rows[0].storage_path }); // another request moved it
+			}
+			return chunkBytes(f.id);
+		}
+		if (!hasStorage()) throw new ctx.HttpError(409, "this file is in Ledger's file storage, which this Ledger doesn't have; update Ledger");
+		const got = await ctx.storage.get(f.storage_path);
+		if (!got) throw new ctx.HttpError(410, "this file is missing from Ledger's file storage (it may have been removed from the data share)");
+		return got.data;
+	}
+	/** Moves a complete file's bytes from file_chunks to ctx.storage → the bytes (undefined if it moved meanwhile). */
+	async function moveToStorage(f) {
+		const data = await chunkBytes(f.id);
+		if (data.length !== Number(f.size_bytes)) throw new Error(`file ${f.id}: ${data.length} bytes in file_chunks, ${f.size_bytes} expected`);
+		const path = newStoragePath(f.name);
+		await ctx.storage.put(path, data);
+		const { rowCount } = await q(`UPDATE ${T("files")} SET storage_path = $2 WHERE id = $1 AND storage_path IS NULL`, [f.id, path]);
+		if (!rowCount) return void (await ctx.storage.remove(path)); // moved meanwhile, or deleted
+		await q(`DELETE FROM ${T("file_chunks")} WHERE file_id = $1`, [f.id]);
+		return data;
+	}
+	/** Removes stored files whose rows are gone; never fails the caller. */
+	async function removeStored(paths) {
+		if (!hasStorage()) return;
+		for (const p of paths.filter(Boolean)) await ctx.storage.remove(p).catch((err) => ctx.log.warn("couldn't remove a stored file", { path: p, err: String(err?.message || err) }));
+	}
+
+	/** Stores a whole file (from email, the scanner, an approved extraction) in the inbox → its id. */
 	async function saveFile(name, type, data, { origin = "", detail = "", note = "", source_url = "", by, features = null }) {
+		const path = hasStorage() ? newStoragePath(name) : null;
+		if (path) await ctx.storage.put(path, data);
 		const chunks = [];
-		for (let i = 0; i < data.length; i += CHUNK_SIZE) chunks.push(data.subarray(i, i + CHUNK_SIZE));
-		const { rows } = await q(
-			`WITH f AS (
-				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail, mail_features)
-				VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $11::text[]) RETURNING id
-			), c AS (
-				INSERT INTO ${T("file_chunks")} (file_id, chunk_index, data)
-				SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($10::bytea[]) WITH ORDINALITY AS u(data, n)
-			)
-			SELECT id FROM f`,
-			[name.slice(0, 255), String(type).slice(0, 200), data.length, createHash("sha256").update(data).digest("hex"), source_url, note.slice(0, 1000), by, origin, detail.slice(0, 200), chunks, features],
-		);
+		if (!path) for (let i = 0; i < data.length; i += CHUNK_SIZE) chunks.push(data.subarray(i, i + CHUNK_SIZE));
+		let rows;
+		try {
+			({ rows } = await q(
+				`WITH f AS (
+					INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail, mail_features, storage_path)
+					VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $11::text[], $12) RETURNING id
+				), c AS (
+					INSERT INTO ${T("file_chunks")} (file_id, chunk_index, data)
+					SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($10::bytea[]) WITH ORDINALITY AS u(data, n)
+				)
+				SELECT id FROM f`,
+				[name.slice(0, 255), String(type).slice(0, 200), data.length, createHash("sha256").update(data).digest("hex"), source_url, note.slice(0, 1000), by, origin, detail.slice(0, 200), chunks, features, path],
+			));
+		} catch (err) {
+			await removeStored([path]);
+			throw err;
+		}
 		ctx.log.info("file received", { file: String(rows[0].id), name, bytes: data.length, origin, by });
 		return rows[0].id;
 	}
@@ -345,6 +405,7 @@ export default async function register(ctx) {
 		const sha = hash.digest("hex");
 		const { rows: dup } = await q(`SELECT id, name, status FROM ${T("files")} WHERE sha256 = $1 AND id <> $2 ORDER BY id DESC LIMIT 1`, [sha, f.id]);
 		await q(`UPDATE ${T("files")} SET status = 'new', sha256 = $2, updated_at = now() WHERE id = $1`, [f.id, sha]);
+		if (hasStorage()) await moveToStorage(f).catch((err) => ctx.log.warn("couldn't move a file to storage; it stays in file_chunks", { file: String(f.id), err: String(err?.message || err) }));
 		ctx.log.info("file received", { file: String(f.id), name: f.name, bytes: Number(f.size_bytes), by: req.user.username });
 		await syncNotice();
 		return { ...(await getFile(f.id)), duplicate_of: dup[0] ?? null };
@@ -374,7 +435,7 @@ export default async function register(ctx) {
 				if (o) r.handoff = { status: o.status, result: o.result };
 			}
 		}
-		return { data: rows, counts: Object.fromEntries(counts.map((c) => [c.status, c.n])) };
+		return { data: rows.map(withUrl), counts: Object.fromEntries(counts.map((c) => [c.status, c.n])) };
 	});
 
 	ctx.route("GET", "/files/:id", async (req) => getFile(req.params.id));
@@ -383,8 +444,7 @@ export default async function register(ctx) {
 	ctx.route("GET", "/files/:id/content", async (req) => {
 		const f = await getFile(req.params.id);
 		if (f.status === "uploading") throw new ctx.HttpError(409, "this file hasn't finished uploading");
-		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [f.id]);
-		return { id: f.id, name: f.name, content_type: f.content_type, size_bytes: f.size_bytes, data: Buffer.concat(rows.map((r) => r.data)).toString("base64") };
+		return { id: f.id, name: f.name, content_type: f.content_type, size_bytes: f.size_bytes, data: (await fileBytes(f)).toString("base64") };
 	});
 
 	// POST /files/:id/sent {to, link?}: the page forwarded the file somewhere (e.g. "Auto sort statement #12").
@@ -429,8 +489,7 @@ export default async function register(ctx) {
 		if (f.source_url) meta.source_url = f.source_url;
 		const note = b.note === undefined ? f.note : b.note;
 		if (typeof note !== "string" || note.length > 2000) throw bad("note must be text of at most 2000 characters");
-		const { rows } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [f.id]);
-		const data = Buffer.concat(rows.map((r) => r.data));
+		const data = await fileBytes(f);
 		const sent = await ctx.files.send(
 			{ to, kind: b.kind, filename: f.name, data, contentType: /^[\w.+-]+\/[\w.+-]+$/.test(f.content_type.split(";")[0].trim()) ? f.content_type.split(";")[0].trim() : "application/octet-stream", meta, note },
 			req.user,
@@ -508,8 +567,7 @@ export default async function register(ctx) {
 			throw new ctx.HttpError(409, "reading PDFs needs an LLM connection for images (Claude reads any PDF; another vision model reads scanned ones) under Settings → LLM API");
 		}
 
-		const { rows: parts } = await q(`SELECT data FROM ${T("file_chunks")} WHERE file_id = $1 ORDER BY chunk_index`, [f.id]);
-		const bytes = Buffer.concat(parts.map((r) => r.data));
+		const bytes = await fileBytes(f);
 		const ask = {
 			system: EXTRACT_SYSTEM,
 			schema: EXTRACT_SCHEMA,
@@ -599,9 +657,11 @@ export default async function register(ctx) {
 		const f = await getFile(e.file_id);
 		const data = Buffer.from(toCsv(tx), "utf8");
 		const sha = createHash("sha256").update(data).digest("hex");
-		const chunks = [];
-		for (let i = 0; i < data.length; i += CHUNK_SIZE) chunks.push(data.subarray(i, i + CHUNK_SIZE));
 		const name = csvName(f.name);
+		const path = hasStorage() ? newStoragePath(name) : null;
+		if (path) await ctx.storage.put(path, data);
+		const chunks = [];
+		if (!path) for (let i = 0; i < data.length; i += CHUNK_SIZE) chunks.push(data.subarray(i, i + CHUNK_SIZE));
 		const edited = req.body?.rows !== undefined && JSON.stringify(tx) !== JSON.stringify(e.rows) ? `, checked and edited by ${req.user.username}` : `, approved by ${req.user.username}`;
 		const memo = `Extracted by AI (${e.model}) from ${f.name}: ${tx.length} transaction${tx.length === 1 ? "" : "s"}${e.currency ? ` in ${e.currency}` : ""}${edited}.`.slice(0, 1000);
 		// One statement: the file, its bytes, and the suggestion marked approved appear together, once.
@@ -610,16 +670,22 @@ export default async function register(ctx) {
 				UPDATE ${T("extractions")} SET status = 'approved', decided_by = $6, decided_at = now(), transactions = $8::jsonb
 				 WHERE id = $9 AND status = 'pending' RETURNING id
 			), f AS (
-				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by)
-				SELECT $1, 'text/csv', $2, $3, 'new', $4, $5, $6 FROM claim RETURNING id
+				INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, storage_path)
+				SELECT $1, 'text/csv', $2, $3, 'new', $4, $5, $6, $10 FROM claim RETURNING id
 			), c AS (
 				INSERT INTO ${T("file_chunks")} (file_id, chunk_index, data)
 				SELECT f.id, (u.n - 1)::int, u.data FROM f, unnest($7::bytea[]) WITH ORDINALITY AS u(data, n)
 			)
 			SELECT id FROM f`,
-			[name, data.length, sha, f.source_url, memo, req.user.username, chunks, JSON.stringify(tx), e.id],
-		);
-		if (!rows[0]) throw new ctx.HttpError(409, "this suggestion was already decided");
+			[name, data.length, sha, f.source_url, memo, req.user.username, chunks, JSON.stringify(tx), e.id, path],
+		).catch(async (err) => {
+			await removeStored([path]);
+			throw err;
+		});
+		if (!rows[0]) {
+			await removeStored([path]);
+			throw new ctx.HttpError(409, "this suggestion was already decided");
+		}
 		const id = rows[0].id;
 		await q(`UPDATE ${T("extractions")} SET csv_file_id = $2 WHERE id = $1`, [e.id, id]);
 		await q(
@@ -652,6 +718,7 @@ export default async function register(ctx) {
 			[f.id, req.user.username, learn],
 		);
 		if (rows[0]) ctx.log.info("email check learned", { file: f.name, from: f.origin_detail, by: req.user.username });
+		await removeStored([f.storage_path]);
 		await syncNotice();
 		return { deleted: true, learned: !!rows[0] };
 	});
@@ -738,11 +805,28 @@ export default async function register(ctx) {
 		}
 	}
 
+	/** Files from before Ledger had file storage: moved a batch at a time (each run moves up to 200). */
+	async function moveOldFiles(org) {
+		const { rows } = await q(`SELECT id, name, size_bytes FROM ${T("files")} WHERE storage_path IS NULL AND status <> 'uploading' ORDER BY id LIMIT 200`);
+		let moved = 0;
+		for (const f of rows) {
+			try {
+				await moveToStorage(f);
+				moved++;
+			} catch (err) {
+				ctx.log.warn("couldn't move a file to storage; it stays in file_chunks", { org: String(org.id), file: String(f.id), err: String(err?.message || err) });
+			}
+		}
+		if (moved) ctx.log.info("moved files to Ledger's file storage", { org: String(org.id), files: moved, more: rows.length === 200 });
+	}
+
 	async function cleanUp() {
 		await eachOrg("clean-up", async (org) => {
 			const { keepDays } = await options(); // each organization has its own settings (Ledger >= 0.11.1)
 			const a = await q(`DELETE FROM ${T("files")} WHERE status = 'uploading' AND received_at < now() - make_interval(hours => $1)`, [STALE_UPLOAD_HOURS]);
-			const b = keepDays > 0 ? await q(`DELETE FROM ${T("files")} WHERE status IN ('sent', 'archived') AND updated_at < now() - make_interval(days => $1)`, [keepDays]) : { rowCount: 0 };
+			const b = keepDays > 0 ? await q(`DELETE FROM ${T("files")} WHERE status IN ('sent', 'archived') AND updated_at < now() - make_interval(days => $1) RETURNING storage_path`, [keepDays]) : { rowCount: 0, rows: [] };
+			await removeStored(b.rows.map((r) => r.storage_path));
+			if (hasStorage()) await moveOldFiles(org);
 			if (a.rowCount + b.rowCount > 0) {
 				ctx.log.info("cleaned up", { org: String(org.id), abandoned_uploads: a.rowCount, old_files: b.rowCount });
 				await syncNotice();

@@ -51,7 +51,8 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
     model). Claude reads any PDF; another vision model reads scanned PDFs (such as *Scan receipt*
     makes), whose pages are sent as pictures. On Ledger 0.11.0–0.11.1 photos can't be read and PDFs
     need Claude;
-  - downloaded, archived or deleted.
+  - opened (PDFs, pictures and text, in a new tab; Ledger 0.13.2+), downloaded, archived or
+    deleted.
 
   The extension can also send statements and bills straight to Auto sort.
 - **Ledger extras:** a dashboard notification while files are waiting; files show up in Ledger's
@@ -185,13 +186,19 @@ Uploads that never complete are removed after a day.
 
 ## Backups
 
-Ledger's backups include the inbox: the database dump has every file, and from Ledger 0.13.0 each
-of this module's tables is also saved as a CSV beside it (`files`, `extractions`, `mail_seen`,
-`mail_training`, `email_check_state`, `file_chunks`). The file bytes are in `file_chunks` (each
-row's `file_id` is a file in `files`, with its name, type, size and dates). From Ledger 0.13.1 that
-CSV shows only each chunk's size; Ledger 0.13.0 writes the bytes as base64, which makes backups big
-and can make them fail once the inbox holds a few hundred MB, so update Ledger. *Delete sent and
-archived files after* (Settings → Import) keeps the inbox in check. No passwords are kept in tables (the IMAP password is a protected setting).
+**On Ledger 0.13.2 or newer** inbox files are kept in Ledger's file storage (on the data share, per
+organization), so every backup folder carries them as **real files** under
+`files/downloads/inbox/<folder>/<file name>`, which you can open straight from the backup. Files
+from before are moved there a batch at a time (hourly, and any file the moment it's opened or
+sent). The tables are also saved as CSVs beside the dump (Ledger 0.13.0+): `files` (each file's
+name, type, size, where it came from, `storage_path`), `extractions`, `mail_seen`,
+`mail_training`, `email_check_state`, and `file_chunks`, which only holds uploads still arriving
+(and, on older Ledger, the files themselves). *Delete sent and archived files after* (Settings →
+Import) keeps the inbox, and so the backups, in check. No passwords are kept in tables (the IMAP
+password is a protected setting).
+
+On Ledger 0.13.0 the CSV copies wrote file bytes as base64, which made backups big and could make
+them fail with a large inbox; 0.13.1 fixed that. Update Ledger if you're on 0.13.0.
 
 ## Privacy
 
@@ -215,7 +222,7 @@ lib/pdf.mjs            JPEG pages -> PDF
 lib/learn.mjs          what the email check learns: features, naive Bayes per sender, training file
 migrations/            files and file_chunks (schema mod_downloads); 002 module hand-offs; 003 AI
                        extractions; 004 file origins, the email log; 005 email training; 006 clearer
-                       names for Ledger 0.13.0's backup CSVs
+                       names for Ledger 0.13.0's backup CSVs; 007 storage_path (ctx.storage)
 ui/index.html          the Import page: inbox, forwarding, AI review, Scan (scanner, camera, upload), the extension download
 ui/receipt.js          finding, straightening and cleaning up a receipt in a photo (canvas, no libraries)
 ui/scan-bridge/        the USB scan bridge: Windows (PowerShell, WIA) and Mac/Linux (Python, SANE)
@@ -237,6 +244,10 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.7.0:** For Ledger 0.13.2: inbox files are kept in Ledger's file storage instead of the
+  database, so backups carry them as real files; older files move there on their own. PDFs,
+  pictures and text open in a new tab (*Open*), and downloads come straight from storage. Older
+  Ledger keeps working as before.
 - **0.6.0:** For Ledger 0.13.0: clearer table and column names for the CSV copies Ledger now saves
   with each backup (`file_chunks.chunk_index`, `email_check_state`, `extractions.transactions`). A
   CSV in the inbox can be sent as a customer or vendor list to a module that keeps them (Ledger

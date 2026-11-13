@@ -60,8 +60,10 @@ feature the module uses (the context file says which version added what;
 - Backups (Ledger ≥ 0.13.0) save every table of this schema as a CSV in each
   backup's folder, next to the dump: keep table and column names readable,
   and no secrets in tables. `file_chunks` holds every file's bytes, so it is
-  the big one; from Ledger 0.13.1 binary columns show only their size in the
-  CSV (0.13.0 wrote base64, which a large inbox can make fail). A file's
+  the big one on older Ledger; from 0.13.2 files live in `ctx.storage` and
+  backups carry them as real files. From Ledger 0.13.1 binary columns show
+  only their size in the CSV (0.13.0 wrote base64, which a large inbox can
+  make fail). A file's
   name, type, size, hash and dates are readable in `files`, which
   `file_chunks.file_id` points to.
 - Ledger runs in a Debian 12 container: the server code spawns no programs
@@ -138,7 +140,16 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   dashboard to-do in step with pending extractions.
 - Upload API is chunked (512 KiB chunks) to stay under Ledger's 1 MiB JSON
   limit: `POST /files` → `PUT /files/:id/chunks/:i` → `POST /files/:id/complete`.
-  Bytes live in `file_chunks`; `GET /files/:id/content` reassembles them.
+  Chunks arrive in `file_chunks`. With `ctx.storage` (Ledger ≥ 0.13.2,
+  feature-detected: `hasStorage()`), `complete` moves the bytes to
+  `inbox/<random>/<file name>` (`files.storage_path`, migration 007) and
+  clears the chunks; `saveFile` (email, scanner) and extraction approve write
+  straight to storage. **Read bytes only through `fileBytes(f)`**: storage,
+  or chunks (moving the file on the way when storage exists). Old files move
+  in hourly batches (`moveOldFiles`); deletes and the clean-up remove the
+  stored file (`removeStored`). `GET /files` gives each stored file's `url`
+  (the page's Open and Download use it). No `ctx.imports`: Import keeps no
+  records people bring from other software.
 - The page also forwards files to the Auto sort module's own routes
   (`/api/v1/m/categorizer/…`) and to Ledger's `POST /api/v1/files` from the
   browser, then records it with `POST /files/:id/sent`. Auto sort is

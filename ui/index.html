@@ -389,6 +389,7 @@
 		const b = (text, fn, cls = "btn") => el("button", { class: cls, onclick: fn }, text);
 		return el("div", { class: "actions" },
 			b("Send…", () => { openId = openId === f.id ? null : f.id; render(); }, "btn primary"),
+			viewable(f) ? b("Open", () => window.open(f.url, "_blank", "noopener")) : null,
 			b("Download", () => download(f)),
 			f.status === "archived" ? b("Back to inbox", () => patch(f, { status: "new" })) : b("Archive", () => patch(f, { status: "archived" })),
 			b("Delete", () => {
@@ -585,7 +586,12 @@
 		);
 	}
 
+	// Files in Ledger's file storage (Ledger 0.13.2+) open and download straight from it.
+	// What browsers show in a tab (CSV is left out: browsers usually download it anyway).
+	const VIEWABLE = /^(application\/pdf|image\/(png|jpeg|gif|webp)|text\/plain)/;
+	const viewable = (f) => f.url && (VIEWABLE.test(f.content_type || "") || /\.(pdf|png|jpe?g|gif|webp|txt)$/i.test(f.name)) && !/\.csv$/i.test(f.name);
 	async function download(f) {
+		if (f.url) return el("a", { href: f.url, download: f.name }).click();
 		try {
 			const c = await content(f);
 			const url = URL.createObjectURL(new Blob([c.bytes], { type: c.content_type || "application/octet-stream" }));
