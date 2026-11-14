@@ -10,11 +10,11 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
   and choose *Send to Ledger…*, or drop a file on the extension's toolbar button. It goes straight
   to Ledger, without being saved to your computer, using the website's login for the download and
   your Ledger login for the upload.
-- **Email:** a scheduled check (hourly by default, or *Check email now*) reads Ledger's Gmail
-  account, or any mailbox over IMAP, and imports the documents in emails that look like bills
+- **Email:** a scheduled check (hourly by default, or *Check email now*) reads the mailbox
+  Ledger is connected to (Settings → Mail: IMAP, e.g. Proton Mail Bridge, or Gmail) and imports the documents in emails that look like bills
   (PDFs, CSV/OFX statements, photos of receipts). A bill sent as the email itself is saved as an
   `.eml` file. Nothing is read by AI here and nothing is marked as read; each message is imported
-  once. (The same check as the Auto sort module's; see *Email* below.) **It learns from you:**
+  once (see *Email* below). **It learns from you:**
   delete an email file with *Delete and learn* and later files like it from that sender are
   skipped; files you send on count as wanted. What it learned is a training file you can download
   and load (see *What the email check learns*).
@@ -33,6 +33,9 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
     own app.
 
   A new scan opens in the inbox with its Send panel ready.
+- **PDFs and scans go in Ledger's Documents** (Ledger's PDF store): every PDF, PNG or JPEG that
+  arrives is filed there, and the inbox entry points to it. Other files (CSV, OFX, …) are kept in
+  the module's file storage. See *Documents* below.
 - **Sort it in Ledger:** on the **Import** page each file can be
   - sent on to the [Auto sort](https://github.com/mastifdogo/auto-sort_module) module, as a
     statement whose transactions you review and post, or as a bill or receipt;
@@ -41,6 +44,8 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
     card come first, sub-accounts under their parent), bill, receipt or transaction list, or a CSV as
     a customer, vendor or customer-and-vendor list (Ledger 0.12.0+ / 0.16.0+), with the receiving
     module's result shown on the file;
+  - **filed in Ledger's Documents** as a receipt, statement (with its bank or card account) or
+    invoice, for PDFs and scans: Reconcile and other modules pick documents up from there;
   - saved to Ledger's CSV files for journal import;
   - run through **Extract data** (for files that aren't a CSV already: PDFs, photos (JPEG, PNG, GIF,
     WebP) and text files such as TXT, OFX, QFX, HTML, XML, JSON, EML): the LLM set up under
@@ -48,12 +53,10 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
     `Date,Description,Amount,Balance` with money out negative, lands in the inbox ready to send on,
     and the original moves to *Sent*) or *Reject* (nothing is created). A dashboard to-do points to
     extractions waiting for review. Text files go to the LLM connection for text; photos and PDFs to
-    the connection for images and documents (Ledger 0.11.2 can have one of each, e.g. a local vision
-    model). Claude reads any PDF; another vision model reads scanned PDFs (such as *Scan receipt*
-    makes), whose pages are sent as pictures. On Ledger 0.11.0–0.11.1 photos can't be read and PDFs
-    need Claude;
-  - opened (PDFs, pictures and text, in a new tab; Ledger 0.13.2+), downloaded, archived or
-    deleted.
+    the connection for images and documents, whatever provider is behind it. If that connection
+    reads PDFs, any PDF works; if it only reads pictures, scanned PDFs work (such as the *Scan* tab
+    makes), their pages sent as pictures;
+  - opened (PDFs, pictures and text, in a new tab), downloaded, archived or deleted.
 
   The extension can also send statements and bills straight to Auto sort.
 - **Ledger extras:** a dashboard notification while files are waiting; files show up in Ledger's
@@ -61,7 +64,7 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
 
 ## Install
 
-Needs **Ledger 0.11.0 or newer**.
+Needs **Ledger 0.19.0 or newer** (for Documents and the shared mailbox; older Ledger keeps Import 0.8.0).
 
 1. In Ledger, open **Settings → Modules**, enter `mastifdogo/download_module` and press **Add**.
    **Import** appears in the sidebar.
@@ -84,16 +87,39 @@ the organization you're working in in Ledger at that moment.
 **Extract data** needs an AI provider: an admin chooses one under **Settings → LLM API** and ticks
 **Import** there. Without it the option is hidden and the Send panel says what to set up.
 
+### Documents
+
+Ledger 0.19 has one place for PDFs: **Documents**. Import files every PDF, PNG or JPEG it takes in
+there (uploads, email attachments, scans, camera pages), as *imported*, and keeps only a pointer.
+
+- A new document is filed as *other* (a camera page as a *receipt*). **Send… → Ledger's Documents:
+  file it as a receipt / statement / invoice** says what it is, and for a statement whose account;
+  sending a file to a module as a statement, bill or receipt sets it too.
+- The same file arriving twice isn't stored twice: the inbox entry points at the document already
+  there.
+- **Deleting** an inbox entry removes its document only if Import added it and it was never sent or
+  filed. Once sent or filed, the document stays in Documents (so does one someone else added).
+- If a document is removed on the Documents page, its inbox entry is marked *missing*.
+- Files from older versions move over on their own: hourly in batches, and any file the moment
+  it's opened or sent.
+- The PDF store takes files up to 50 MB.
+
+Until the Auto sort module reads from Documents itself, sending it a PDF still hands it the file
+directly as before (with the document's id alongside).
+
 ### Email
 
-Under **Settings → Import**: *Read email from* Gmail (Ledger's account: an admin connects it under
-**Settings → Gmail** and allows **Import** to read mail) or another provider over IMAP (server, user
-name and app password; `127.0.0.1` works for Proton Bridge). The default reads Gmail in the main
-books only, so a second organization doesn't import the same mail. Also: how often, an optional
-Gmail search (e.g. `label:bills`), the keywords an email must contain (subject, sender, text or
-attachment names), how far back the first check looks, and whether to save bills without
-attachments as `.eml` files. The Inbox shows when email was last checked, and a dashboard notice
-appears if a check fails.
+An admin connects the mailbox once under **Settings → Mail** (an IMAP account such as Proton Mail
+Bridge, or Gmail) and allows **Import** to read mail there. Under **Settings → Import**: whether
+to read email (by default in the main books only, so a second organization doesn't import the same
+mail), how often, the keywords an email must contain (subject, sender, text or attachment names),
+how far back the first check looks, and whether to save bills without attachments as `.eml` files.
+The Inbox shows when email was last checked, and a dashboard notice appears if a check fails.
+
+**Coming from Import 0.8 or earlier:** Import no longer has its own IMAP settings or Gmail search;
+it reads whichever mailbox Ledger is connected to. If you used IMAP here, set that mailbox up under
+Settings → Mail and allow Import. What the check learned is kept; messages are looked at once more
+in the new mailbox, and files already in the inbox are recognised as the same documents.
 
 **If the Auto sort module reads the same mailbox**, both would pick up the same bills: turn its
 email off (Settings → Auto sort → *Read bills from* → *Don't read email*) and send the files on from
@@ -187,52 +213,45 @@ Uploads that never complete are removed after a day.
 
 ## Backups
 
-**On Ledger 0.13.2 or newer** inbox files are kept in Ledger's file storage (on the data share, per
-organization), so every backup folder carries them as **real files** under
-`files/downloads/inbox/<folder>/<file name>`, which you can open straight from the backup. Files
-from before are moved there a batch at a time (hourly, and any file the moment it's opened or
-sent). The tables are also saved as CSVs beside the dump (Ledger 0.13.0+): `files` (each file's
-name, type, size, where it came from, `storage_path`), `extractions`, `mail_seen`,
-`mail_training`, `email_check_state`, and `file_chunks`, which only holds uploads still arriving
-(and, on older Ledger, the files themselves). *Delete sent and archived files after* (Settings →
-Import) keeps the inbox, and so the backups, in check. No passwords are kept in tables (the IMAP
-password is a protected setting).
+PDFs and scans are in Ledger's Documents, which Ledger backs up with the books. Other inbox files
+(CSV, OFX, `.eml`, …) are in the module's file storage, carried in every backup folder as real files
+under `files/downloads/inbox/<folder>/<file name>`. The tables are saved as CSVs beside the dump:
+`files` (each file's name, type, size, where it came from, `document_id` or `storage_path`),
+`extractions`, `mail_seen`, `mail_training`, `email_check_state`, and `file_chunks`, which only
+holds uploads still arriving. *Delete sent and archived files after* (Settings → Import) keeps the
+inbox in check. No passwords are kept in tables.
 
 **Restores** (Ledger 0.14.0+): restoring an organization's full backup brings back its inbox and
 its files together. A restore from an uploaded dump file brings back only the list: files whose
 stored copy isn't there are marked *missing* (delete them, or restore a full backup), and stored
 files no longer in the list are removed by the hourly clean-up once they're an hour old.
 
-On Ledger 0.13.0 the CSV copies wrote file bytes as base64, which made backups big and could make
-them fail with a large inbox; 0.13.1 fixed that. Update Ledger if you're on 0.13.0.
-
 ## Privacy
 
-Files are stored in Ledger's database (and its backups) until you delete them, or until the days
-set under Settings → Import have passed. The extension sends nothing anywhere but your Ledger.
-The email check only reads the mailbox (IMAP read-only, Gmail through Ledger) and keeps a list of
-the messages it looked at; scanning talks only to the scanner on your network.
-**Extract data** sends that one file's content to the AI provider chosen under Settings → LLM API
-(Anthropic's API for Claude, or your own Ollama / OpenAI-compatible server), only when you press
-*Extract*.
+Files are kept in Ledger (Documents and the module's file storage, and its backups) until you
+delete them, or until the days set under Settings → Import have passed. The extension sends nothing
+anywhere but your Ledger. The email check only reads the mailbox, through Ledger, never marks mail
+read, and keeps a list of the messages it looked at; scanning talks only to the scanner on your
+network. **Extract data** sends that one file's content to the LLM connection chosen under
+Settings → LLM API (a hosted provider or your own server), only when you press *Extract*.
 
 ## Layout
 
 ```
 ledger-module.json     manifest (settings, drawn download icon)
 server.mjs             upload in chunks, the inbox, AI extraction to CSV, scanner routes, clean-up, dashboard, search
-lib/mail.mjs           the email check (Gmail through ctx.gmail, or IMAP)
-lib/imap.mjs, mime.mjs read-only IMAP client and MIME parser (from the Auto sort module)
+lib/mail.mjs           the email check, through Ledger's mailbox (ctx.mail)
 lib/escl.mjs           network scanners: eSCL / AirScan, mDNS discovery, local-network check
 lib/pdf.mjs            JPEG pages -> PDF
 lib/learn.mjs          what the email check learns: features, naive Bayes per sender, training file
 migrations/            files and file_chunks (schema mod_downloads); 002 module hand-offs; 003 AI
                        extractions; 004 file origins, the email log; 005 email training; 006 clearer
-                       names for Ledger 0.13.0's backup CSVs; 007 storage_path (ctx.storage)
+                       names for backup CSVs; 007 storage_path (ctx.storage); 008 document_id
+                       (ctx.documents)
 ui/index.html          the Import page: inbox, forwarding, AI review, Scan (scanner, camera, upload), the extension download
 ui/receipt.js          finding, straightening and cleaning up a receipt in a photo (canvas, no libraries)
 ui/scan-bridge/        the USB scan bridge: Windows (PowerShell, WIA) and Mac/Linux (Python, SANE)
-test/                  npm test: email, IMAP, MIME, eSCL (a fake scanner), PDF, learning, the Python scan bridge
+test/                  npm test: the email check (a stand-in mailbox), eSCL (a fake scanner), PDF, learning, the Python scan bridge
 ui/extension/          the Send to Ledger browser extension (Manifest V3, Chrome and Firefox)
 ```
 
@@ -250,6 +269,10 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.9.0:** For Ledger 0.19 (now required): PDFs and PNG/JPEG scans are filed in Ledger's
+  **Documents**, with *file it as a receipt / statement / invoice*; existing ones move over.
+  Email is read through Ledger's mailbox (Settings → Mail), so Import's own IMAP settings and
+  Gmail search are gone. Messages name no LLM provider.
 - **0.8.0:** For Ledger 0.14–0.16: after a restore, inbox files whose stored copy is missing are
   marked (and stored files no longer listed are cleaned up). The statement account picker lists
   accounts tagged chequing, savings or credit card first, and sub-accounts under their parent. CSV

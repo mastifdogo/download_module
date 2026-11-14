@@ -40,9 +40,14 @@ feature the module uses (the context file says which version added what;
 - Never edit a released migration; add the next `NNN_name.sql`.
 - Money is integer cents per currency; post to the books only with
   `ctx.ledger.createJournalEntry(entry, req.user)`.
-- AI goes through `ctx.llm` and Gmail through `ctx.gmail` (Ledger ≥ 0.10.0):
-  no API keys, OAuth, IMAP or Apps Script bridges of the module's own for
-  those. The admin allows the module under Settings → LLM API / Gmail.
+- AI goes through `ctx.llm` (any provider, Ledger 0.18.2: never branch on
+  `status().provider` or name a provider in prompts or UI; go by
+  `configured`, `images.configured`, `readsPdf`, and validate `json()` data)
+  and mail through `ctx.mail` (Ledger 0.18.3: the mailbox under Settings →
+  Mail, IMAP or Gmail). No IMAP, SMTP, OAuth or API keys of the module's own.
+- **PDFs, and PNG/JPEG scans, go in Ledger's PDF store** (`ctx.documents`,
+  Ledger 0.19.0), filed with `add({ origin: "imported" }, req.user)`; only
+  the document id is kept. Never in `ctx.storage` or `bytea` columns.
 - Files for other modules go through `ctx.files` (Ledger ≥ 0.11.0), never
   another module's tables: pick receivers from `ctx.files.targets(kind)`.
 - Organizations (Ledger ≥ 0.11.0): each organization's books and this
@@ -130,9 +135,9 @@ leave pushing it to them. The module must work without that change.
 An inbox for files sent from the browser, plus the Send to Ledger extension
 that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
 
-- Needs Ledger ≥ 0.11.0 (`ctx.files`, `ctx.orgs`; before that `ctx.llm`,
-  `ctx.settings`, `ctx.search`, `ctx.dashboard`, drawn icon). Settings:
-  `max_file_mb`, `keep_days`.
+- Needs Ledger ≥ 0.19.0 (`ctx.documents`; `ctx.mail` 0.18.3; `ctx.storage`
+  0.13.2). No feature detection for older Ledger any more. Settings:
+  `max_file_mb`, `keep_days`, the email check's, `scanner_url`.
 - Each organization has its own inbox. The hourly clean-up and the startup
   dashboard notice run through `eachOrg` (`ctx.orgs.forEach`), one
   organization's failure not stopping the others. `max_file_mb` and
@@ -154,28 +159,38 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   dashboard to-do in step with pending extractions.
 - Upload API is chunked (512 KiB chunks) to stay under Ledger's 1 MiB JSON
   limit: `POST /files` → `PUT /files/:id/chunks/:i` → `POST /files/:id/complete`.
-  Chunks arrive in `file_chunks`. With `ctx.storage` (Ledger ≥ 0.13.2,
-  feature-detected: `hasStorage()`), `complete` moves the bytes to
-  `inbox/<random>/<file name>` (`files.storage_path`, migration 007) and
-  clears the chunks; `saveFile` (email, scanner) and extraction approve write
-  straight to storage. **Read bytes only through `fileBytes(f)`**: storage,
-  or chunks (moving the file on the way when storage exists). Old files move
-  in hourly batches (`moveOldFiles`); deletes and the clean-up remove the
-  stored file (`removeStored`). `GET /files` gives each stored file's `url`
-  (the page's Open and Download use it). No `ctx.imports`: Import keeps no
-  records people bring from other software.
+  Chunks arrive in `file_chunks`; `complete` settles them.
+- **Where bytes live** (server.mjs, "Where file bytes live"): `place()` puts
+  a PDF/PNG/JPEG (sniffed, ≤ 50 MB) in `ctx.documents` (`files.document_id`,
+  `document_added_here`; a 409 duplicate uses the document the error names)
+  and anything else in `ctx.storage` (`storage_path`,
+  `inbox/<random>/<name>`). `settle()` moves a file that isn't placed yet
+  (chunks, or a PDF still in storage from 0.7–0.8); `settleOldFiles` does it
+  hourly in batches. **Read bytes only through `fileBytes(f)`.** `discard()`
+  removes a deleted file's document only if added here, never sent, and no
+  other inbox row points at it. `GET /files` adds `url`, `document: { kind,
+  account_code }` and `missing`. Ledger's NotFoundError has no `status`:
+  use `notFound404(err)`.
+- `POST /files/:id/file-as {kind, account_code?}` sets the document's kind
+  (and a statement's account) and marks the file sent; `/handoff` and `/sent
+  {kind}` set it too (`DOCUMENT_KIND_OF`). PDFs still go to modules through
+  `ctx.files` with `meta.document_id`, until Auto sort reads from the store;
+  drop that when it does.
 - The page also forwards files to the Auto sort module's own routes
   (`/api/v1/m/categorizer/…`) and to Ledger's `POST /api/v1/files` from the
   browser, then records it with `POST /files/:id/sent`. Auto sort is
   optional: detect it (404 on its routes) and hide those options. Once Auto
   sort accepts files through `ctx.files` (it's listed by `/targets`), the page
   uses that instead and hides its direct options.
-- **Email** (`lib/mail.mjs`, from Auto sort's mail check; `lib/imap.mjs` and
-  `lib/mime.mjs` are the same files): Gmail through `ctx.gmail` or IMAP;
-  documents of keyword-matching emails become inbox files (`saveFile`,
-  `origin: "email"`), bills without attachments `.eml`; `mail_seen` keeps
-  each message once, `state` the last check. A minute timer loops
-  `ctx.orgs.forEach`; "auto" reads Gmail only in organization 1. No AI.
+- **Email** (`lib/mail.mjs`): through `ctx.mail` only. `messagesSince`
+  walks the search back by date (100 a call); `emailCandidates` picks
+  attachments by name, type and size before downloading; documents of
+  keyword-matching emails become inbox files (`saveFile`, `origin: "email"`),
+  bills without attachments `.eml`. `mail_seen` keeps each message once per
+  mailbox (`folder` = `<kind>:<account>`, `uidvalidity` 0, `uid` = the
+  mail id); `email_check_state` the last check. A minute timer loops
+  `ctx.orgs.forEach`; "auto" reads mail only in organization 1. No AI.
+  Tests use a stand-in ctx (test/import.test.mjs).
 - **Email learning** (`lib/learn.mjs`, migration 005): email files keep
   `mail_features`; `DELETE /files/:id?learn=1` stores an unwanted example,
   sending a file on (`learnKept` in /sent, /handoff, extraction approve) a

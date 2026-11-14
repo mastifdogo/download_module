@@ -334,7 +334,7 @@
 		$("empty").classList.toggle("hidden", files.length > 0);
 		$("files").classList.toggle("hidden", files.length === 0);
 		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail(), me ? null : api("/me").then((x) => (me = x), () => (me = { role: "viewer" }))]);
-		if (autosort || (targets || []).some((t) => t.accepts.includes("statement"))) await bankAccounts();
+		await bankAccounts(); // for statements: sent to a module, or filed in Documents
 		render();
 	}
 
@@ -345,6 +345,7 @@
 					el("td", { class: "wide" },
 						el("div", { class: "name" }, f.name),
 						f.note ? el("div", { class: "muted small" }, f.note) : null,
+						f.document && !f.missing ? el("div", { class: "muted small" }, `In Ledger's Documents${f.document.kind !== "other" ? ` as ${f.document.kind === "invoice" ? "an invoice" : `a ${f.document.kind}`}` : ""}${f.document.account_code ? ` (account ${f.document.account_code})` : ""}`) : null,
 						f.status === "sent" ? el("div", { class: "small" }, "Sent to ", f.sent_link ? el("a", { href: "#", onclick: (e) => { e.preventDefault(); goLedger(f.sent_link); } }, f.sent_to) : f.sent_to, f.sent_by ? ` by ${f.sent_by}` : "") : null,
 						f.handoff ? el("div", { class: `small ${f.handoff.status === "rejected" ? "bad" : "muted"}` }, HANDOFF[f.handoff.status] || f.handoff.status, f.handoff.result ? `: ${f.handoff.result}` : "") : null,
 						actions(f),
@@ -414,7 +415,7 @@
 		if (f.missing) {
 			// After a restore from a dump file, which brings back only the tables: the row is back, the file isn't.
 			return el("div", {},
-				el("div", { class: "small bad" }, "The file itself is missing from Ledger's file storage (a restore from a dump file brings back only the list). Delete it, or restore a full backup."),
+				el("div", { class: "small bad" }, "The file itself is missing (removed on Ledger's Documents page, or a restore from a dump file, which brings back only the list). Delete it here, or restore a full backup."),
 				el("div", { class: "actions" }, b("Delete", () => confirm(`Delete ${f.name} from the list?`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail), "btn danger")));
 		}
 		return el("div", { class: "actions" },
@@ -439,6 +440,8 @@
 			if (BILL_RE.test(f.name)) opts.push(["bill", "Auto sort: bill or receipt"]);
 		}
 		if (/\.csv$/i.test(f.name)) opts.push(["ledger-file", "Ledger's CSV files (journal import)"]);
+		// A PDF or scan is in Ledger's Documents: say what it is there, where Reconcile and modules pick it up.
+		if (f.document_id != null) for (const k of ["receipt", "statement", "invoice"]) opts.push([`doc:${k}`, `Ledger's Documents: file it as ${k === "invoice" ? "an invoice or bill" : `a ${k}`}`]);
 		const kind = extractable(f);
 		let aiHint = null;
 		if (kind && ai) {
@@ -484,7 +487,7 @@
 			el("div", { class: "muted", style: "margin-top:0.3rem" }, "You'll check what the AI read, and correct it, before anything is created. When you approve, a CSV (Date, Description, Amount, Balance) lands in the inbox, ready to send on, and this file moves to Sent."),
 		);
 		const sync = () => {
-			const modStmt = /^mod:[^:]+:statement$/.test(dest.value);
+			const modStmt = /^mod:[^:]+:statement$/.test(dest.value) || dest.value === "doc:statement";
 			stmt.classList.toggle("hidden", dest.value !== "statement" && !modStmt);
 			flipLabel.classList.toggle("hidden", modStmt);
 			ext.classList.toggle("hidden", dest.value !== "extract");
@@ -498,6 +501,7 @@
 			try {
 				if (dest.value === "extract") await extract(f, instructions.value);
 				else if (dest.value.startsWith("mod:")) await handoff(f, dest.value, account.value);
+				else if (dest.value.startsWith("doc:")) await fileAs(f, dest.value.slice(4), account.value);
 				else await forward(f, dest.value, { account: account.value, flip: flip.checked });
 			} catch (e) { fail(e); } finally { go.disabled = false; go.textContent = label; }
 		} }, "Send");
@@ -531,9 +535,16 @@
 			to = "Ledger's CSV files";
 			link = "/files";
 		}
-		await api(`/files/${f.id}/sent`, { method: "POST", body: JSON.stringify({ to, link }) });
+		await api(`/files/${f.id}/sent`, { method: "POST", body: JSON.stringify({ to, link, ...(dest === "statement" ? { kind: "statement", account_code: account } : dest === "bill" ? { kind: "bill" } : {}) }) });
 		openId = null;
 		toast(`Sent: ${to}.`);
+		await load();
+	}
+
+	async function fileAs(f, kind, account) {
+		const r = await api(`/files/${f.id}/file-as`, { method: "POST", body: JSON.stringify({ kind, ...(kind === "statement" && account ? { account_code: account } : {}) }) });
+		openId = null;
+		toast(`Filed in ${r.sent_to}.`);
 		await load();
 	}
 
@@ -680,7 +691,7 @@
 
 	// ------------------------------------------------------------- Camera (phones and tablets): photos -> one PDF -> the inbox
 	// The phone's camera is reached through a file input with capture: it works inside Ledger's frame without
-	// camera permissions. Photos are shrunk and put into a PDF in the browser, so the AI (Claude) and Auto
+	// camera permissions. Photos are shrunk and put into a PDF in the browser, so the AI and Auto
 	// sort can read them; nothing leaves the page except the upload to this inbox.
 	let parentQuery = new URLSearchParams();
 	try { parentQuery = new URLSearchParams(window.parent.location.search); } catch {}
@@ -1077,7 +1088,7 @@
 		const importAnyway = async (row, btn) => {
 			btn.disabled = true;
 			try {
-				const r = await api("/mail/skipped/import", { method: "POST", body: JSON.stringify({ folder: row.folder, uidvalidity: row.uidvalidity, uid: row.uid }) });
+				const r = await api("/mail/skipped/import", { method: "POST", body: JSON.stringify({ folder: row.folder, uid: row.uid }) });
 				toast(r.files ? `Imported ${r.files} file${r.files === 1 ? "" : "s"}; files like ${r.files === 1 ? "it" : "them"} count as wanted now.` : "Its files are already in the inbox.");
 				$("filter").value = "new";
 				await load();
@@ -1111,6 +1122,7 @@
 	}
 
 	// ------------------------------------------------------------- Email (Settings → Import)
+	const MAILBOX = { imap: "IMAP mailbox", gmail: "Gmail" };
 	async function loadMail() {
 		let m;
 		try { m = await api("/mail"); } catch { return; }
@@ -1125,7 +1137,7 @@
 			? el("span", { class: "muted" }, `Email: ${m.missing}.`)
 			: st.error
 				? el("span", { class: "bad" }, `Email check failed ${ago(st.last_check_at)}: ${st.error}`)
-				: el("span", { class: "muted" }, st.last_check_at ? `Email (${m.source === "gmail" ? "Gmail" : "IMAP"}) checked ${ago(st.last_check_at)}${got ? ` · ${got} new file${got === 1 ? "" : "s"}` : ""}${m.interval ? `, every ${m.interval} min` : ""}.` : `Email (${m.source === "gmail" ? "Gmail" : "IMAP"}) not checked yet.`);
+				: el("span", { class: "muted" }, st.last_check_at ? `Email (${MAILBOX[m.mailbox] || "mailbox"}) checked ${ago(st.last_check_at)}${got ? ` · ${got} new file${got === 1 ? "" : "s"}` : ""}${m.interval ? `, every ${m.interval} min` : ""}.` : `Email (${MAILBOX[m.mailbox] || "mailbox"}) not checked yet.`);
 		const btn = el("button", { class: "btn", onclick: async () => {
 			btn.disabled = true;
 			btn.textContent = "Checking…";

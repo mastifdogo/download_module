@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { test } from "node:test";
 import { capabilities, isLocalAddress, normalizeScannerUrl, parseDns, scan, ScannerError, status } from "../lib/escl.mjs";
-import { emailDocuments, gmailQuery, looksLikeBill, sentByMe } from "../lib/mail.mjs";
-import { parseEmail } from "../lib/mime.mjs";
+import { emailCandidates, htmlToText, looksLikeBill, registerMail, sentByMe } from "../lib/mail.mjs";
 import { jpegInfo, jpegsToPdf } from "../lib/pdf.mjs";
-import { sampleEmail } from "./helpers.mjs";
 
 const JPEG = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAA8ACgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAP//Z", "base64"); // 40 x 60, RGB
 
@@ -147,26 +145,130 @@ test("mDNS answers: PTR, SRV, TXT and A records", () => {
 	assert.equal(recs[3].data, "192.168.1.40");
 });
 
-test("email: documents worth importing, keyword filter, own mail", () => {
-	const email = parseEmail(sampleEmail());
-	const docs = emailDocuments(email, 25 << 20);
-	assert.equal(docs.length, 1);
-	assert.equal(docs[0].type, "application/pdf");
+test("email: attachments worth importing, keyword filter, own mail", () => {
+	const atts = [
+		{ attachmentId: "a1", filename: "logo.png", mimeType: "image/png", size: 500 },
+		{ attachmentId: "a2", filename: "", mimeType: "image/jpeg", size: 31_000 },
+		{ attachmentId: "a3", filename: "a/b.csv", mimeType: "text/csv", size: 12 },
+		{ attachmentId: "a4", filename: "huge.pdf", mimeType: "application/pdf", size: 200 },
+		{ attachmentId: "a5", filename: "invite.ics", mimeType: "text/calendar", size: 900 },
+	];
+	assert.deepEqual(emailCandidates(atts, 100).map((d) => d.name), ["a-b.csv"]);
+	assert.deepEqual(emailCandidates(atts, 1 << 20).map((d) => [d.attachmentId, d.name]), [["a2", "photo.jpg"], ["a3", "a-b.csv"], ["a4", "huge.pdf"]]);
+	const email = { subject: "Your Rogers bill", from: "Rogers <billing@rogers.com>", text: "Amount due: $85.50", attachments: atts };
 	assert.ok(looksLikeBill(email, ["amount due"]));
 	assert.ok(!looksLikeBill(email, ["mortgage"]));
 	assert.ok(looksLikeBill(email, []));
-	// logos are skipped, photos kept, odd names cleaned
-	const fake = { attachments: [
-		{ filename: "logo.png", contentType: "image/png", data: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(500)]) },
-		{ filename: "", contentType: "image/jpeg", data: Buffer.concat([JPEG, Buffer.alloc(30_000)]) },
-		{ filename: "a/b.csv", contentType: "text/csv", data: Buffer.from("Date,Amount\n") },
-		{ filename: "huge.pdf", contentType: "application/pdf", data: Buffer.alloc(200) },
-	] };
-	const d2 = emailDocuments(fake, 100);
-	assert.deepEqual(d2.map((d) => d.name), ["a-b.csv"]);
-	assert.deepEqual(emailDocuments(fake, 1 << 20).map((d) => d.name), ["photo.jpg", "a-b.csv", "huge.pdf"]);
-	assert.ok(sentByMe({ labels: ["SENT"] }));
 	assert.ok(sentByMe({ from: "me@x.com", to: "them@y.com" }, "me@x.com"));
 	assert.ok(!sentByMe({ from: "me@x.com", to: "me@x.com" }, "me@x.com"));
-	assert.equal(gmailQuery({ lookbackDays: 7, keywords: ["bill", "amount due"], custom: "" }), 'newer_than:7d -in:drafts -in:chats {bill "amount due"}');
+	assert.equal(htmlToText("<html><head><style>p{}</style></head><body><p>Amount due: <b>$85.50</b></p></body></html>"), "Amount due: $85.50");
+});
+
+/** registerMail against a stand-in ctx: a mailbox of messages, Ledger's tables as arrays. */
+function fakeLedger(messages, { status = { connected: true, kind: "imap", account: "me@example.com", canRead: true, canSend: false } } = {}) {
+	const routes = new Map();
+	const seen = [];
+	const training = [];
+	const saved = [];
+	let state = {};
+	const calls = [];
+	const ctx = {
+		id: "downloads", name: "Import",
+		route: (method, path, fn) => routes.set(`${method} ${path}`, fn),
+		HttpError: class extends Error { constructor(status, message) { super(message); this.status = status; } },
+		settings: { get: async () => ({ mail_source: "imap", mail_keywords: "bill, invoice", mail_lookback_days: 30 }) }, // "imap": a choice from an older version
+		orgs: { current: async () => ({ id: 1 }), forEach: async () => {} },
+		dashboard: { remove: async () => {}, notify: async (n) => calls.push(`notify ${n.body}`) },
+		log: { info() {}, warn() {}, error() {} },
+		mail: {
+			status: async () => status,
+			search: async (query) => {
+				calls.push(`search ${JSON.stringify(query)}`);
+				const list = [...messages.values()].filter((m) => !query.before || m.date.slice(0, 10) < query.before).sort((a, b) => b.date.localeCompare(a.date));
+				return { messages: list.slice(0, query.max).map(({ id, date, from, to, subject }) => ({ id, date, from, to, subject, snippet: "" })) };
+			},
+			message: async (id) => {
+				const m = messages.get(id);
+				if (!m) throw Object.assign(new Error("gone"), { status: 404 });
+				return { ...m, attachments: (m.attachments ?? []).map(({ data, ...a }) => ({ ...a, size: data.length })) };
+			},
+			attachment: async (id, attachmentId) => (calls.push(`attachment ${id} ${attachmentId}`), messages.get(id).attachments.find((a) => a.attachmentId === attachmentId).data),
+			raw: async (id) => Buffer.from(`Subject: ${messages.get(id).subject}\r\n\r\nbody`),
+		},
+	};
+	const q = async (sql, params = []) => {
+		if (/SELECT uid FROM/.test(sql)) return { rows: seen.filter((r) => r.folder === params[0] && params[1].includes(r.uid)).map((r) => ({ uid: r.uid })) };
+		if (/SELECT label, features/.test(sql)) return { rows: training };
+		if (/INSERT INTO mail_seen/.test(sql)) return void seen.push({ folder: params[0], uid: params[1], outcome: params[2], files: params[3], reason: params[6] }) ?? { rows: [] };
+		if (/SELECT outcome, reason FROM mail_seen/.test(sql)) return { rows: seen.filter((r) => r.folder === params[0] && r.uid === params[1]) };
+		if (/UPDATE mail_seen/.test(sql)) return { rows: [] };
+		if (/SELECT id FROM files WHERE sha256/.test(sql)) return { rows: [] };
+		if (/INSERT INTO email_check_state/.test(sql)) return void (state = { ...state, ...JSON.parse(params[0]) }) ?? { rows: [] };
+		if (/SELECT value FROM email_check_state/.test(sql)) return { rows: [{ value: state }] };
+		throw new Error(`unexpected SQL: ${sql}`);
+	};
+	const h = { q, T: (t) => t, maxBytes: async () => 25 << 20, syncNotice: async () => {}, learnKept: async (ids) => calls.push(`learnKept ${ids}`), saveFile: async (name, type, data, opts) => (saved.push({ name, type, bytes: data.length, ...opts }), saved.length) };
+	const { checkMail } = registerMail(ctx, h);
+	return { checkMail, routes, seen, training, saved, calls, user: { username: "pat" }, state: () => state };
+}
+
+const pdf = (n) => Buffer.from(`%PDF-1.4 ${n} ${"x".repeat(100)}`);
+const msg = (id, date, from, subject, attachments = [], text = "") => [id, { id, date: `${date}T10:00:00.000Z`, from, to: "me@example.com", cc: "", subject, text, html: "", attachments }];
+
+test("email check through Ledger's mailbox: files, .eml, filters, each message once", async () => {
+	const today = new Date().toISOString().slice(0, 10);
+	const box = new Map([
+		msg("7.1", today, "Hydro One <bills@hydroone.com>", "Your October bill", [{ attachmentId: "p1", filename: "invoice-1001.pdf", mimeType: "application/octet-stream", data: pdf(1) }, { attachmentId: "p2", filename: "logo.png", mimeType: "image/png", data: Buffer.alloc(300) }]),
+		msg("7.2", today, "City <water@city.example>", "Water invoice ready", [], "Amount due 40.00"),
+		msg("7.3", today, "Shop <news@shop.example>", "Weekend sale", [{ attachmentId: "p3", filename: "flyer.pdf", mimeType: "application/pdf", data: pdf(3) }]),
+		msg("7.4", today, "Me <me@example.com>", "Fwd: bill for you", [{ attachmentId: "p4", filename: "x.pdf", mimeType: "application/pdf", data: pdf(4) }]),
+	]);
+	box.get("7.4").to = "client@else.example";
+	const L = fakeLedger(box);
+	const r = await L.checkMail({ trigger: "manual", by: "pat", user: L.user });
+	assert.deepEqual({ looked_at: r.looked_at, files: r.files, emails_saved: r.emails_saved, filtered: r.filtered, sent: r.sent }, { looked_at: 4, files: 1, emails_saved: 1, filtered: 1, sent: 1 });
+	assert.deepEqual(L.saved.map((s) => [s.name, s.type, s.origin, s.detail]), [["invoice-1001.pdf", "application/pdf", "email", "Hydro One"], ["Water invoice ready.eml", "message/rfc822", "email", "City"]]);
+	assert.equal(L.saved[0].user, L.user, "the person who pressed Check is passed on (documents are filed in their name)");
+	assert.ok(L.seen.every((s) => s.folder === "imap:me@example.com"));
+	assert.ok(!L.calls.some((c) => c.includes("p2") || c.includes("p3")), "logos and filtered emails' attachments aren't downloaded");
+	assert.equal(L.state().error, null);
+	// again: nothing twice
+	const again = await L.checkMail();
+	assert.equal(again.looked_at, 0);
+	assert.equal(L.saved.length, 2);
+});
+
+test("email check: what was learned skips before downloading; import anyway", async () => {
+	const today = new Date().toISOString().slice(0, 10);
+	const box = new Map([msg("9.1", today, "Hydro One <bills@hydroone.com>", "Your November bill", [{ attachmentId: "t1", filename: "terms-and-conditions.pdf", mimeType: "application/pdf", data: pdf(9) }, { attachmentId: "i1", filename: "invoice-1102.pdf", mimeType: "application/pdf", data: pdf(8) }])]);
+	const L = fakeLedger(box);
+	const { features } = await import("../lib/learn.mjs");
+	L.training.push({ label: -1, features: features({ from: "Hydro One <bills@hydroone.com>", subject: "Your October bill" }, { name: "terms-and-conditions.pdf" }) });
+	const r = await L.checkMail();
+	assert.equal(r.files, 1);
+	assert.equal(r.files_skipped, 1);
+	assert.deepEqual(L.saved.map((s) => s.name), ["invoice-1102.pdf"]);
+	assert.ok(!L.calls.includes("attachment 9.1 t1"), "the skipped attachment wasn't downloaded");
+	assert.match(L.seen[0].reason, /terms-and-conditions\.pdf: looks like 1 file you deleted/);
+	const out = await L.routes.get("POST /mail/skipped/import")({ body: { folder: "imap:me@example.com", uid: "9.1" }, user: L.user });
+	assert.equal(out.files, 2); // the stand-in knows no files yet, so both come in
+	await assert.rejects(L.routes.get("POST /mail/skipped/import")({ body: { folder: "gmail:other@example.com", uid: "9.1" }, user: L.user }), /no such skipped email/);
+});
+
+test("email check: more than 100 messages are walked back by date; no mailbox says where to set one up", async () => {
+	const box = new Map();
+	for (let i = 0; i < 230; i++) {
+		const d = new Date(Date.now() - (i % 23) * 86_400_000).toISOString().slice(0, 10);
+		const [id, m] = msg(`5.${i}`, d, "Shop <news@shop.example>", `Newsletter ${i}`);
+		box.set(id, m);
+	}
+	const L = fakeLedger(box);
+	const r = await L.checkMail();
+	assert.equal(r.looked_at + r.remaining, 230, "every message in the window is found");
+	assert.ok(L.calls.filter((c) => c.startsWith("search")).length >= 3);
+	const none = fakeLedger(new Map(), { status: { connected: false, kind: null, account: null, canRead: false, canSend: false } });
+	const e = await none.checkMail();
+	assert.match(e.error, /no mailbox is connected.*Settings → Mail/);
+	const mail = await none.routes.get("GET /mail")({});
+	assert.match(mail.missing, /Settings → Mail/);
 });
