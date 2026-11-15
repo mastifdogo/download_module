@@ -24,6 +24,8 @@ test("jpegInfo reads a JPEG's size; jpegsToPdf makes one page per JPEG", () => {
 test("only scanners on the local network", () => {
 	for (const ip of ["192.168.1.40", "10.0.0.5", "172.20.1.1", "169.254.3.4", "100.101.102.103", "127.0.0.1", "fd12::1", "fe80::1", "::1", "::ffff:192.168.0.2"]) assert.ok(isLocalAddress(ip), ip);
 	for (const ip of ["8.8.8.8", "172.32.0.1", "1.1.1.1", "2606:4700::1111", "::ffff:8.8.8.8"]) assert.ok(!isLocalAddress(ip), ip);
+	// cloud hosts' metadata services are in the local ranges, and are not scanners
+	for (const ip of ["169.254.169.254", "169.254.170.2", "100.100.100.200", "fd00:ec2::254", "::ffff:169.254.169.254"]) assert.ok(!isLocalAddress(ip), ip);
 	assert.equal(normalizeScannerUrl("192.168.1.40"), "http://192.168.1.40/eSCL");
 	assert.equal(normalizeScannerUrl("https://scanner.local:443/eSCL/"), "https://scanner.local/eSCL");
 	assert.equal(normalizeScannerUrl("http://10.0.0.9:8080/escl"), "http://10.0.0.9:8080/escl");
@@ -33,6 +35,7 @@ test("only scanners on the local network", () => {
 
 test("a public address is refused before any request", async () => {
 	await assert.rejects(capabilities("http://8.8.8.8/eSCL"), /isn't on your local network/);
+	await assert.rejects(capabilities("http://169.254.169.254/latest"), /isn't on your local network/);
 });
 
 /** A fake eSCL scanner: glass and a feeder holding `sheets` pages. */

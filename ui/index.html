@@ -240,7 +240,7 @@
 		try {
 			const { data } = await call("/api/v1/m/categorizer/accounts");
 			autosort = { accounts: data.filter((a) => a.type === "asset" || a.type === "liability") };
-		} catch (e) {
+		} catch {
 			autosort = false;
 		}
 		return autosort;
@@ -351,7 +351,7 @@
 						f.handoff ? el("div", { class: `small ${f.handoff.status === "rejected" ? "bad" : "muted"}` }, HANDOFF[f.handoff.status] || f.handoff.status, f.handoff.result ? `: ${f.handoff.result}` : "") : null,
 						actions(f),
 						f.pending_extraction && reviewId !== f.pending_extraction ? el("div", { class: "small review-note" }, "AI extracted data from this file. ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); openReview(f.pending_extraction); } }, "Check and approve it")) : null,
-						reviewId && review && review.file_id === f.id ? reviewPanel(f) : null,
+						reviewId && review && review.file_id === f.id ? reviewPanel() : null,
 						deletingId === f.id ? deletePanel(f) : null,
 						openId === f.id && !(review && review.file_id === f.id) ? forwardPanel(f) : null,
 					),
@@ -365,7 +365,11 @@
 	}
 
 	function fromCell(f) {
-		if (f.source_url) return el("span", { title: f.source_url }, new URL(f.source_url).host);
+		if (f.source_url) {
+			let host = f.source_url;
+			try { host = new URL(f.source_url).host; } catch {} // not an address after all: shown as it is
+			return el("span", { title: f.source_url }, host);
+		}
 		const what = { email: "email", scanner: "scanner", camera: "phone camera", upload: "uploaded" }[f.origin];
 		if (!what) return el("span", { class: "muted" }, "dropped file");
 		return el("span", { title: f.origin_detail || what }, what, f.origin_detail ? el("div", { class: "muted" }, f.origin_detail) : null);
@@ -581,7 +585,7 @@
 	}
 	const closeReview = () => { review = null; reviewId = null; };
 
-	function reviewPanel(f) {
+	function reviewPanel() {
 		const r = review;
 		const input = (row, key, attrs) => el("input", { ...attrs, value: row[key], "aria-label": key, oninput: (e) => (row[key] = e.target.value) });
 		const body = el("tbody");
@@ -1159,7 +1163,7 @@
 
 	// ------------------------------------------------------------- start (?file= from Ledger's search bar, ?tab=scan)
 	(async () => {
-		let fileId = parentQuery.get("file");
+		const fileId = parentQuery.get("file");
 		if (fileId && /^\d+$/.test(fileId)) {
 			$("filter").value = "all";
 			openId = Number(fileId);

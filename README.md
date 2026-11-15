@@ -66,7 +66,7 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
 
 ## Install
 
-Needs **Ledger 0.19.0 or newer** (for Documents and the shared mailbox; older Ledger keeps Import 0.8.0).
+Needs **Ledger 0.19.8 or newer** (for Documents, the shared mailbox and the settings tabs; older Ledger keeps the last Import made for it).
 
 1. In Ledger, open **Settings → Modules**, enter `mastifdogo/download_module` and press **Add**.
    **Import** appears in the sidebar.
@@ -186,7 +186,8 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `POST` | `/files/:id/complete` | checks every chunk arrived, records the SHA-256 → the file (and `duplicate_of` if it arrived before) |
 | `GET` | `/files?status=new\|sent\|archived\|all` | the inbox, with counts |
 | `GET` | `/files/:id`, `/files/:id/content` | one file; its bytes (base64) |
-| `POST` | `/files/:id/sent` | `{to, link?}`: record where the page forwarded it |
+| `POST` | `/files/:id/sent` | `{to, link?, kind?, account_code?}`: record where the page forwarded it (`kind`: statement, bill or receipt, which also files a PDF or scan as that in Documents) |
+| `POST` | `/files/:id/file-as` | `{kind: "receipt"\|"statement"\|"invoice"\|"other", account_code?}`: say what a PDF or scan is in Ledger's Documents; it's marked sent |
 | `GET` | `/ai` | `{configured, allowed, reads_pdf, reads_images, model}`: whether Extract data can be offered, per kind of file |
 | `POST` | `/files/:id/extract` | `{instructions?}`: the AI reads a PDF or text file → a **pending** extraction `{id, file_id, rows: [{date, description, amount, balance}], model, currency}`; nothing else changes |
 | `GET` | `/extractions?status=pending\|approved\|rejected\|all`, `/extractions/:id` | extractions waiting for review (the list without rows) |
@@ -201,10 +202,11 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `POST` | `/scanner/find`, `/scanner` | admins: AirScan scanners on the network `{data: [{name, url}]}`; use one `{url}` (`""` forgets it) |
 | `POST` | `/scans` | `{source?: "Platen"\|"Feeder", color?: "color"\|"gray", resolution?, duplex?, name?}` → 202 `{id, status}` |
 | `GET` | `/mail/skipped` | emails (or some of their files) skipped because of what the check learned, with the reason |
-| `POST` | `/mail/skipped/import` | `{folder, uidvalidity, uid}`: import it anyway (and learn it's wanted) |
+| `POST` | `/mail/skipped/import` | `{folder, uid}` (from `/mail/skipped`): import it anyway (and learn it's wanted) |
 | `DELETE` | `/files/:id?learn=1` | delete an email file and learn from it → `{deleted, learned}` |
 | `GET` | `/training`, `/training/file` | what was learned (senders, recent examples); the training file |
 | `POST` | `/training/file`, `/training/forget` | load a training file → `{added, skipped}`; forget `{sender}` or `{all: true}` |
+| `DELETE` | `/training/:id` | forget one example |
 | `GET` | `/me` | `{username, role, ledger, version}` for the page |
 | `GET` | `/scans/:id` | `{status: "scanning"\|"done"\|"error", pages, file_id, file_name, error}` |
 
@@ -253,7 +255,8 @@ migrations/            files and file_chunks (schema mod_downloads); 002 module 
 ui/index.html          the Import page: inbox, forwarding, AI review, Scan (scanner, camera, upload), the extension download
 ui/receipt.js          finding, straightening and cleaning up a receipt in a photo (canvas, no libraries)
 ui/scan-bridge/        the USB scan bridge: Windows (PowerShell, WIA) and Mac/Linux (Python, SANE)
-test/                  npm test: the email check (a stand-in mailbox), eSCL (a fake scanner), PDF, learning, the Python scan bridge
+test/                  npm test: the email check (a stand-in mailbox), eSCL (a fake scanner), PDF, learning, the Python scan bridge,
+                       the inbox routes (a stand-in Ledger), the extension's download and upload
 ui/extension/          the Send to Ledger browser extension (Manifest V3, Chrome and Firefox)
 ```
 
@@ -271,6 +274,12 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.14.1:** Fixes. A file whose web address can't be read no longer stops the inbox from
+  showing. A picture that is only the start of a PNG is kept as an ordinary file instead of
+  staying half-stored (and stopping an email check). Recording a sent file with a wrong kind is
+  refused before the file is marked sent. The scanner address can't be a cloud host's metadata
+  service. The extension sends files whose name has a stray `%`, a slash or more than 255
+  characters (reinstall it from the Import page to get that).
 - **0.14.0:** Tidier Settings → Import: the email options show only when reading email is on.
   Needs Ledger 0.19.8.
 

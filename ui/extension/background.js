@@ -144,7 +144,9 @@ const UPLOADS_AT_ONCE = 3;
  */
 async function uploadToInbox(file) {
 	const base = `/api/v1/m/${INBOX}/files`;
-	const start = await ledger({ method: "POST", path: base, json: { name: file.name, content_type: file.type || "", size: file.size, source_url: file.from || "" } });
+	// The inbox takes a plain file name: no folders or control characters, at most 255 characters.
+	const name = String(file.name || "").replace(/[\u0000-\u001f/\\]/g, "-").trim().slice(-255) || "download";
+	const start = await ledger({ method: "POST", path: base, json: { name, content_type: file.type || "", size: file.size, source_url: file.from || "" } });
 	const { id, chunk_size } = start;
 	const bin = atob(file.base64); // one character per byte
 	const total = Math.max(1, Math.ceil(bin.length / chunk_size));
@@ -198,10 +200,18 @@ async function fetchLinkInPage(url) {
 		if (buf.length > 100 * 1024 * 1024) return { error: "the file is larger than 100 MB" };
 		let bin = "";
 		for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+		// A name isn't always percent-encoded ("100% paid.pdf"): then it is used as it is.
+		const decode = (s) => {
+			try {
+				return decodeURIComponent(s);
+			} catch {
+				return s;
+			}
+		};
 		const cd = r.headers.get("content-disposition") || "";
 		const m = /filename\*=(?:UTF-8'')?([^;]+)|filename="?([^";]+)"?/i.exec(cd);
-		let name = m ? decodeURIComponent((m[1] || m[2]).trim()) : "";
-		if (!name) name = decodeURIComponent(new URL(r.url).pathname.split("/").pop() || "") || "download";
+		let name = m ? decode((m[1] || m[2]).trim()) : "";
+		if (!name) name = decode(new URL(r.url).pathname.split("/").pop() || "") || "download";
 		return { name, type: r.headers.get("content-type") || "", base64: btoa(bin), size: buf.length };
 	} catch (err) {
 		return { error: String(err && err.message ? err.message : err) };

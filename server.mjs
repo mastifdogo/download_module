@@ -233,8 +233,12 @@ export default async function register(ctx) {
 	// ---------------------------------------------------------------------
 
 	const DOCUMENT_MAX_BYTES = 50 * 1024 * 1024; // what the PDF store takes
-	/** Whether the PDF store takes these bytes (it checks by content: PDF, PNG, JPEG). */
-	const isDocument = (b) => b.length <= DOCUMENT_MAX_BYTES && (b.subarray(0, 5).toString("latin1") === "%PDF-" || imageType(b) === "image/png" || imageType(b) === "image/jpeg");
+	const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+	/**
+	 * Whether the PDF store takes these bytes (it checks by content: PDF, PNG, JPEG). A PNG needs its
+	 * whole signature, as the store wants it: a cut-off one is refused there, so it is kept as any other file.
+	 */
+	const isDocument = (b) => b.length <= DOCUMENT_MAX_BYTES && (b.subarray(0, 5).toString("latin1") === "%PDF-" || b.subarray(0, 8).equals(PNG_SIGNATURE) || imageType(b) === "image/jpeg");
 	/** A file's row with the address the browser opens it at. */
 	const withUrl = (r) => ({ ...r, url: r.document_id != null ? ctx.documents.url(r.document_id) : r.storage_path ? ctx.storage.url(r.storage_path) : null });
 	/** "inbox/<random>/<the file's own name, made safe>": the download keeps the file's name. */
@@ -418,7 +422,7 @@ export default async function register(ctx) {
 		if (size > maxBytes) throw new ctx.HttpError(413, `the file is larger than ${maxBytes / 1024 / 1024} MB (the limit is under Settings → ${ctx.name})`);
 		const type = typeof b.content_type === "string" ? b.content_type.slice(0, 200) : "";
 		let source = typeof b.source_url === "string" ? b.source_url.trim() : "";
-		if (source && !/^https?:\/\/\S{1,2000}$/.test(source)) source = "";
+		if (source && !(/^https?:\/\/\S{1,2000}$/.test(source) && URL.canParse(source))) source = ""; // the page shows its host
 		const origin = b.origin === undefined ? "" : b.origin;
 		if (!CLIENT_ORIGINS.includes(origin)) throw bad('origin must be "camera" or "upload" (or left out)');
 		const { rows } = await q(
@@ -512,23 +516,24 @@ export default async function register(ctx) {
 		return { id: f.id, name: f.name, content_type: f.content_type, size_bytes: f.size_bytes, data: (await fileBytes(f)).toString("base64") };
 	});
 
-	// POST /files/:id/sent {to, link?}: the page forwarded the file somewhere (e.g. "Auto sort statement #12").
+	// POST /files/:id/sent {to, link?, kind?, account_code?}: the page forwarded the file somewhere (e.g. "Auto sort statement #12").
 	ctx.route("POST", "/files/:id/sent", async (req) => {
 		const f = await getFile(req.params.id);
 		const to = typeof req.body?.to === "string" ? req.body.to.trim().slice(0, 200) : "";
 		if (!to) throw bad("to is required (where the file was sent)");
 		const link = typeof req.body?.link === "string" ? req.body.link.trim() : "";
 		if (link && !/^\/(?![/\\])\S{0,500}$/.test(link)) throw bad("link must be a path inside Ledger");
+		// The page forwarded it itself (Auto sort's own routes) and may say what it was sent as.
+		const kind = req.body?.kind;
+		if (kind !== undefined && !(typeof kind === "string" && Object.hasOwn(DOCUMENT_KIND_OF, kind))) throw bad("kind must be statement, bill or receipt");
 		if (f.status === "uploading") throw new ctx.HttpError(409, "this file hasn't finished uploading");
 		await q(
 			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = $3, sent_by = $4, sent_at = now(), sent_file_id = NULL, updated_at = now() WHERE id = $1`,
 			[f.id, to, link, req.user.username],
 		);
-		// The page forwarded it itself (Auto sort's own routes) and says what it was sent as.
-		if (req.body?.kind !== undefined) {
-			if (!DOCUMENT_KIND_OF[req.body.kind]) throw bad("kind must be statement, bill or receipt");
+		if (kind !== undefined) {
 			const code = typeof req.body.account_code === "string" && ACCOUNT_CODE_RE.test(req.body.account_code) ? req.body.account_code : "";
-			await fileDocumentAs(f, DOCUMENT_KIND_OF[req.body.kind], code);
+			await fileDocumentAs(f, DOCUMENT_KIND_OF[kind], code);
 		}
 		await learnKept(f.id, "sent", req.user.username);
 		await syncNotice();
@@ -657,7 +662,7 @@ export default async function register(ctx) {
 		return { configured: !!st.configured, allowed: !!st.allowed, reads_pdf: !!st.readsPdf, reads_images: !!st.images?.configured, model: st.model ?? null };
 	});
 
-	// POST /files/:id/extract {instructions?} -> the new CSV file (status "new"); the original is marked sent.
+	// POST /files/:id/extract {instructions?} -> 201, a pending extraction for a person to check; nothing else changes.
 	ctx.route("POST", "/files/:id/extract", async (req) => {
 		const f = await getFile(req.params.id);
 		if (f.status === "uploading") throw new ctx.HttpError(409, "this file hasn't finished uploading");
