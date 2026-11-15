@@ -75,7 +75,7 @@ Needs **Ledger 0.19.0 or newer** (for Documents and the shared mailbox; older Le
    [ui/extension/README.md](ui/extension/README.md).
 3. In the extension's options, enter your Ledger address, **Save**, allow access, and **Test**.
 
-**Options** (Settings → Import; from Ledger 0.11.1 each organization has its own):
+**Options** (Settings → Import, on its Files, Email and Scanner tabs; each organization has its own):
 - **Largest file accepted:** 25 MB by default, at most 100.
 - **Delete sent and archived files after:** a number of days, or 0 to keep them. Files waiting in
   the inbox are never deleted automatically.
@@ -112,7 +112,7 @@ directly as before (with the document's id alongside).
 ### Email
 
 An admin connects the mailbox once under **Settings → Mail** (an IMAP account such as Proton Mail
-Bridge, or Gmail) and allows **Import** to read mail there. Under **Settings → Import**: whether
+Bridge, or Gmail) and allows **Import** to read mail there. Under **Settings → Import → Email**: whether
 to read email (by default in the main books only, so a second organization doesn't import the same
 mail), how often, the keywords an email must contain (subject, sender, text or attachment names),
 how far back the first check looks, and whether to save bills without attachments as `.eml` files.
@@ -149,7 +149,7 @@ another organization or after a reinstall; examples it already knows are skipped
 
 On the **Scan** tab an admin presses **Find scanners** (the Ledger server looks for AirScan scanners
 on its network) and **Use** one, or types its address (on the scanner's screen or network settings
-page, e.g. `192.168.1.40`). It's saved as *Network scanner* under Settings → Import. Then anyone can
+page, e.g. `192.168.1.40`). It's saved as *Network scanner* under Settings → Import → Scanner. Then anyone can
 scan. Only addresses on your local network are accepted (private, link-local, Tailscale, and the
 Ledger machine itself).
 
@@ -220,7 +220,7 @@ PDFs and scans are in Ledger's Documents, which Ledger backs up with the books. 
 under `files/downloads/inbox/<folder>/<file name>`. The tables are saved as CSVs beside the dump:
 `files` (each file's name, type, size, where it came from, `document_id` or `storage_path`),
 `extractions`, `mail_seen`, `mail_training`, `email_check_state`, and `file_chunks`, which only
-holds uploads still arriving. *Delete sent and archived files after* (Settings → Import) keeps the
+holds uploads still arriving. *Delete sent and archived files after* (Settings → Import → Files) keeps the
 inbox in check. No passwords are kept in tables.
 
 **Restores** (Ledger 0.14.0+): restoring an organization's full backup brings back its inbox and
@@ -231,7 +231,7 @@ files no longer in the list are removed by the hourly clean-up once they're an h
 ## Privacy
 
 Files are kept in Ledger (Documents and the module's file storage, and its backups) until you
-delete them, or until the days set under Settings → Import have passed. The extension sends nothing
+delete them, or until the days set under Settings → Import → Files have passed. The extension sends nothing
 anywhere but your Ledger. The email check only reads the mailbox, through Ledger, never marks mail
 read, and keeps a list of the messages it looked at; scanning talks only to the scanner on your
 network. **Extract data** sends that one file's content to the LLM connection chosen under
@@ -270,6 +270,9 @@ accessible by integration", allow it under Settings → Actions → General → 
 ("Read and write permissions") and run it again from the Actions tab.
 
 ## Changes
+
+- **0.13.0:** Settings → Import is split into tabs: Files, Email and Scanner. Each saves on its own;
+  your settings don't change. Needs Ledger 0.19.6.
 
 - **0.12.1:** For Ledger 0.19.3–0.19.5: a statement filed in Documents shows its account as it is
   now (account codes can be renamed) and whether it has been reconciled; no account code is

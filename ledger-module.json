@@ -1,9 +1,9 @@
 {
   "id": "downloads",
   "name": "Import",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Import files into Ledger: from your browser (the Send to Ledger extension, included), from email (Ledger's mailbox), from a scanner, from a phone's camera, or uploaded. PDFs and scans are filed in Ledger's Documents. Check them, read them with AI (you approve what it found), and send them on to Auto sort, other modules or Ledger's CSV import.",
-  "ledger": ">=0.19.0",
+  "ledger": ">=0.19.6",
   "server": "server.mjs",
   "ui": "ui",
   "nav": {
@@ -14,6 +14,23 @@
   },
   "migrations": "migrations",
   "settings": {
+    "tabs": [
+      {
+        "id": "files",
+        "label": "Files",
+        "help": "What Import accepts and how long it keeps files it has passed on."
+      },
+      {
+        "id": "email",
+        "label": "Email",
+        "help": "Importing attachments from Ledger's mailbox (connected under Settings → Mail). Each organization has its own."
+      },
+      {
+        "id": "scanner",
+        "label": "Scanner",
+        "help": "A scanner or printer on your network, for the Scan tab."
+      }
+    ],
     "fields": [
       {
         "key": "max_file_mb",
@@ -51,7 +68,8 @@
             "label": "No"
           }
         ],
-        "help": "Set per organization. The mailbox is the one connected under Settings → Mail (IMAP, e.g. Proton Mail Bridge, or Gmail); an admin allows Import to read mail there. If the Auto sort module reads the same mailbox for bills, turn its email off (Settings → Auto sort) and send the files from here instead."
+        "help": "Set per organization. The mailbox is the one connected under Settings → Mail (IMAP, e.g. Proton Mail Bridge, or Gmail); an admin allows Import to read mail there. If the Auto sort module reads the same mailbox for bills, turn its email off (Settings → Auto sort) and send the files from here instead.",
+        "tab": "email"
       },
       {
         "key": "mail_interval",
@@ -60,14 +78,16 @@
         "min": 0,
         "max": 10080,
         "default": 60,
-        "help": "0 turns scheduled checks off; Check email now on the Import page always works."
+        "help": "0 turns scheduled checks off; Check email now on the Import page always works.",
+        "tab": "email"
       },
       {
         "key": "mail_keywords",
         "label": "Keywords",
         "type": "textarea",
         "default": "invoice, bill, statement, amount due, balance due, payment due, due date, receipt, pre-authorized, autopay, facture",
-        "help": "Comma-separated. Only emails containing one of these are imported. Empty: every email."
+        "help": "Comma-separated. Only emails containing one of these are imported. Empty: every email.",
+        "tab": "email"
       },
       {
         "key": "mail_lookback_days",
@@ -75,21 +95,24 @@
         "type": "number",
         "min": 1,
         "max": 365,
-        "default": 30
+        "default": 30,
+        "tab": "email"
       },
       {
         "key": "mail_save_body",
         "label": "Save matching emails without attachments as .eml files",
         "type": "boolean",
         "default": true,
-        "help": "For bills sent as the email itself; Auto sort reads .eml bills."
+        "help": "For bills sent as the email itself; Auto sort reads .eml bills.",
+        "tab": "email"
       },
       {
         "key": "scanner_url",
         "label": "Network scanner",
         "type": "text",
         "default": "",
-        "help": "Easiest from the Scan tab (Find scanners). Or its address, e.g. 192.168.1.40 or http://scanner.local/eSCL: a scanner or printer with AirScan / eSCL on your local network."
+        "help": "Easiest from the Scan tab (Find scanners). Or its address, e.g. 192.168.1.40 or http://scanner.local/eSCL: a scanner or printer with AirScan / eSCL on your local network.",
+        "tab": "scanner"
       }
     ]
   }
