@@ -9,8 +9,6 @@ const send = (msg) => chrome.runtime.sendMessage(msg).then((r) => {
 });
 const STATEMENT_RE = /\.(csv|ofx|qfx|qbo|txt)$/i;
 const BILL_RE = /\.(pdf|eml)$/i;
-const MAX_STATEMENT = 1_000_000; // characters Ledger accepts in one request
-const MAX_BILL = 700_000; // bytes (base64 grows it by a third)
 /** What Ledger's Documents keeps: PDFs, and PNG or JPEG scans. */
 const isDoc = (f) => /\.(pdf|png|jpe?g)$/i.test(f.name) || /^(application\/pdf|image\/(png|jpeg))/i.test(f.type || "");
 
@@ -97,7 +95,6 @@ function base64Of(bytes) {
 	for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
 	return btoa(bin);
 }
-const textOf = (f) => new TextDecoder().decode(Uint8Array.from(atob(f.base64), (c) => c.charCodeAt(0)));
 
 /** Whether the Auto sort module is installed; hides its options when it isn't. */
 async function checkAutosort() {
@@ -187,24 +184,17 @@ async function pick(f) {
 // A file still downloading (after "Send to Ledger…" on a link): the form is there already, so the
 // fields can be chosen meanwhile, and Send pressed early sends as soon as the file has arrived.
 let waiting = false;
-let queued = false;
 function arrived(f) {
 	waiting = false;
-	file = f;
+	file = { ...f, held: true }; // the extension holds the file itself
 	$("picked").textContent = describe(f);
+	if (sending) return; // Send was pressed already: the extension is on it
 	fitChoices(f);
 	if ($("dest").selectedOptions[0]?.disabled) {
 		// What was chosen while waiting doesn't fit what the file turned out to be.
-		queued = false;
 		$("dest").value = "inbox";
 		$("dest").onchange();
-		$("send").disabled = false;
-		return show(`${f.name} can't be sent that way; choose again.`, "err");
-	}
-	if (queued) {
-		queued = false;
-		$("send").disabled = false;
-		$("form").requestSubmit();
+		show(`${f.name} can't be sent that way; choose again.`, "err");
 	}
 }
 
@@ -238,51 +228,19 @@ $("account").onchange = () => {
 
 $("form").onsubmit = async (e) => {
 	e.preventDefault();
-	if (waiting) {
-		if ($("dest").value.endsWith("statement") && !$("account").value) return show("Choose the bank or card account the statement is for.", "err");
-		queued = true;
-		$("send").disabled = true;
-		return show("Got it: this sends as soon as the download finishes.", "ok");
-	}
-	if (!file) return;
+	if (!file && !waiting) return;
 	const dest = $("dest").value;
+	if (dest.endsWith("statement") && !$("account").value) return show("Choose the bank or card account the statement is for.", "err");
+	const job = { dest, account: dest.endsWith("statement") ? $("account").value : "", flip: $("flip").checked, dateOrder: $("date-order").value };
 	$("send").disabled = true;
 	sending = true;
-	show("Sending…", "muted");
+	// The extension does the sending, not this window: it can be closed, and a notification says how it went.
+	show(waiting ? "Got it. It's sent as soon as the download finishes; you can close this window and carry on. A notification will say when it's done." : "Sending… You can close this window; a notification will say when it's done.", "muted");
 	try {
-		if (dest === "inbox") {
-			const r = await send({ type: "inbox", file });
-			const dup = r.duplicate_of ? ` The same file arrived before (${r.duplicate_of.name}).` : "";
-			show([`Sent to the Import inbox.${dup} `, link("Open it in Ledger", () => openLedger(`/apps/downloads?file=${r.id}`))], "ok");
-		} else if (dest.startsWith("doc-")) {
-			const kind = dest.slice(4);
-			const code = kind === "statement" ? $("account").value : "";
-			if (kind === "statement" && !code) throw new Error("Choose the bank or card account the statement is for.");
-			const r = await send({ type: "document", file, kind, account_code: code });
-			if (code) await chrome.storage.local.set({ lastAccount: code });
-			show([`Filed in Ledger's ${r.sent_to}. `, link("Open Documents in Ledger", () => openLedger("/documents"))], "ok");
-		} else if (dest === "statement") {
-			if (isDoc(file)) throw new Error("Auto sort reads statements as CSV, OFX, QFX or QBO. For a PDF statement, choose \"Statement (PDF), filed in Ledger's Documents\".");
-			if (!STATEMENT_RE.test(file.name)) throw new Error("Statements must be CSV, OFX, QFX or QBO files.");
-			const code = $("account").value;
-			if (!code) throw new Error("Choose the bank or card account the statement is for.");
-			const content = textOf(file);
-			if (content.length > MAX_STATEMENT) throw new Error("The statement is too large for one upload; download a shorter period.");
-			const r = await send({ type: "statement", body: { filename: file.name, content, account_code: code, flip_signs: $("flip").checked, date_order: $("date-order").value } });
-			await chrome.storage.local.set({ lastAccount: code });
-			show([`${r.transactions} transactions staged${r.duplicates ? ` (${r.duplicates} already uploaded were skipped)` : ""}. `, link("Review them in Ledger", () => openLedger(`/apps/categorizer?statement=${r.id}`))], "ok");
-		} else if (dest === "bill") {
-			if (file.size > MAX_BILL) throw new Error("Auto sort takes bills up to 700 KB this way. Choose \"Invoice or bill, filed in Ledger's Documents\" or the Import inbox instead: they take larger files.");
-			const r = await send({ type: "bill", body: { filename: file.name, content_base64: file.base64 } });
-			show([`Bill read: ${r.vendor || "unknown vendor"}${r.amount_cents != null ? `, ${(r.amount_cents / 100).toFixed(2)} ${r.currency}` : ""}. `, link("Review it in Ledger", () => openLedger(`/apps/categorizer?bill=${r.id}`))], "ok");
-		} else {
-			if (!/\.csv$/i.test(file.name)) throw new Error("Ledger's journal import takes CSV files.");
-			await send({ type: "ledger-file", filename: file.name, base64: file.base64 });
-			show(["Saved to Ledger's CSV files. ", link("Open Files in Ledger", () => openLedger("/files"))], "ok");
-		}
-		const kind = BILL_RE.test(file.name) || /pdf|rfc822/.test(file.type) ? "bill" : STATEMENT_RE.test(file.name) ? "statement" : "other";
-		const { lastDest = {} } = await chrome.storage.local.get("lastDest");
-		await chrome.storage.local.set({ lastDest: { ...lastDest, [kind]: dest } });
+		// A file from a menu click is already with the extension; one dropped here is handed over.
+		const r = await send({ type: "send", job, ...(file && !file.held ? { file } : {}) });
+		show([`${r.text} `, link(r.linkText || "Open Ledger", () => openLedger(r.path))], r.fallback ? "err" : "ok");
+		send({ type: "last-result" }).catch(() => {}); // seen here: clear the toolbar badge
 	} catch (err) {
 		problem(err);
 	} finally {
@@ -294,7 +252,7 @@ $("form").onsubmit = async (e) => {
 // How far the upload is (larger files go in pieces).
 let sending = false;
 chrome.runtime.onMessage.addListener((msg) => {
-	if (msg?.type === "progress" && sending && msg.total > 1 && msg.done < msg.total) show(`Sending… ${Math.round((msg.done / msg.total) * 100)}%`, "muted");
+	if (msg?.type === "progress" && sending && msg.total > 1 && msg.done < msg.total) show(`Sending… ${Math.round((msg.done / msg.total) * 100)}%. You can close this window.`, "muted");
 });
 
 // A PDF (or other file) the browser is showing in this tab: fetched in that tab, with the site's login.
@@ -332,7 +290,8 @@ $("options").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPa
 		waiting = true;
 		showForm({ name, type: "" }, !/\.[a-z0-9]{2,5}$/i.test(name));
 		const failed = (say) => {
-			waiting = queued = false;
+			waiting = false;
+			if (sending) return; // the Send in progress reports it
 			$("form").classList.add("hidden");
 			$("picked").classList.add("hidden");
 			$("send").disabled = false;
@@ -349,6 +308,10 @@ $("options").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPa
 		}
 		$("drop").classList.remove("hidden");
 	} else if (await ready()) {
+		// How the last send went, if it finished while no window was open.
+		send({ type: "last-result" }).then((r) => {
+			if (r && Date.now() - r.at < 10 * 60_000 && !$("msg").textContent) show([`${r.ok ? "" : "Not sent: "}${r.name}: ${r.text} `, ...(r.path ? [link(r.linkText || "Open Ledger", () => openLedger(r.path))] : [])], r.ok && !r.fallback ? "ok" : "err");
+		}).catch(() => {});
 		send({ type: "warm-up" }).catch(() => {}); // a Ledger tab, ready by the time Send is pressed
 	}
 })();

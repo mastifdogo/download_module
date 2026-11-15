@@ -269,6 +269,128 @@ async function onLinkMenu(info, tab) {
 }
 chrome.contextMenus.onClicked.addListener(onLinkMenu);
 
+// --- Sending, here in the background ---------------------------------------
+// The popup only says where a file goes. The work (waiting for the download, uploading, filing)
+// happens here, so the window can be closed and the browser used for something else meanwhile.
+// The outcome goes back to the window if it's still open, and always to a notification and the
+// toolbar button's badge.
+
+const STATEMENT_RE = /\.(csv|ofx|qfx|qbo|txt)$/i;
+const BILL_RE = /\.(pdf|eml)$/i;
+const MAX_STATEMENT = 1_000_000; // characters Ledger accepts in one request
+const MAX_BILL = 700_000; // bytes (base64 grows it by a third)
+const isDoc = (f) => /\.(pdf|png|jpe?g)$/i.test(f.name) || /^(application\/pdf|image\/(png|jpeg))/i.test(f.type || "");
+/** A choice that doesn't fit the file: it goes to the Import inbox instead, which takes anything. */
+const misfit = (message) => Object.assign(new Error(message), { misfit: true });
+
+/** Sends the file where the job says. → { text, path } (what happened, and where to see it in Ledger). */
+async function deliver(file, job) {
+	const dest = job.dest;
+	if (dest === "inbox") {
+		const r = await uploadToInbox(file);
+		return { text: `Sent to the Import inbox.${r.duplicate_of ? ` The same file arrived before (${r.duplicate_of.name}).` : ""}`, path: `/apps/${INBOX}?file=${r.id}`, linkText: "Open it in Ledger" };
+	}
+	if (dest.startsWith("doc-")) {
+		const kind = dest.slice(4);
+		if (!isDoc(file)) throw misfit(`${file.name} isn't a PDF or a PNG or JPEG scan, so it can't be filed in Documents.`);
+		if (kind === "statement" && !job.account) throw new Error("Choose the bank or card account the statement is for.");
+		// Into the Import inbox (which files PDFs and scans in Ledger's Documents), then say what it is.
+		const f = await uploadToInbox(file);
+		const r = await ledger({ method: "POST", path: `/api/v1/m/${INBOX}/files/${f.id}/file-as`, json: { kind, ...(kind === "statement" ? { account_code: job.account } : {}) } });
+		return { text: `Filed in Ledger's ${r.sent_to}.`, path: "/documents", linkText: "Open Documents in Ledger" };
+	}
+	if (dest === "statement") {
+		if (isDoc(file)) throw misfit("Auto sort reads statements as CSV, OFX, QFX or QBO, not PDFs or pictures.");
+		if (!STATEMENT_RE.test(file.name)) throw misfit("Statements for Auto sort must be CSV, OFX, QFX or QBO files.");
+		if (!job.account) throw new Error("Choose the bank or card account the statement is for.");
+		const content = new TextDecoder().decode(Uint8Array.from(atob(file.base64), (c) => c.charCodeAt(0)));
+		if (content.length > MAX_STATEMENT) throw misfit("The statement is too large for Auto sort in one upload.");
+		const r = await ledger({ method: "POST", path: `/api/v1/m/${AUTOSORT}/statements`, json: { filename: file.name, content, account_code: job.account, flip_signs: !!job.flip, date_order: job.dateOrder || "auto" } });
+		return { text: `${r.transactions} transactions staged${r.duplicates ? ` (${r.duplicates} already uploaded were skipped)` : ""}.`, path: `/apps/${AUTOSORT}?statement=${r.id}`, linkText: "Review them in Ledger" };
+	}
+	if (dest === "bill") {
+		if (file.size > MAX_BILL) throw misfit("Auto sort takes bills up to 700 KB this way.");
+		const r = await ledger({ method: "POST", path: `/api/v1/m/${AUTOSORT}/bills/upload`, json: { filename: file.name, content_base64: file.base64 } });
+		return { text: `Bill read: ${r.vendor || "unknown vendor"}${r.amount_cents != null ? `, ${(r.amount_cents / 100).toFixed(2)} ${r.currency}` : ""}.`, path: `/apps/${AUTOSORT}?bill=${r.id}`, linkText: "Review it in Ledger" };
+	}
+	if (dest === "ledger-file") {
+		if (!/\.csv$/i.test(file.name)) throw misfit("Ledger's journal import takes CSV files.");
+		await ledger({ method: "POST", path: "/api/v1/files", form: { field: "file", filename: file.name, type: "text/csv", base64: file.base64 } });
+		return { text: "Saved to Ledger's CSV files.", path: "/files", linkText: "Open Files in Ledger" };
+	}
+	throw new Error(`unknown destination ${dest}`);
+}
+
+function badge(text, color) {
+	try {
+		chrome.action.setBadgeText({ text });
+		if (color) chrome.action.setBadgeBackgroundColor({ color });
+	} catch {
+		// no badge in this browser
+	}
+}
+
+/** Tells the outcome where it will be seen with the window closed: a notification, the badge, and the popup's next opening. */
+async function announce(result) {
+	await chrome.storage.local.set({ lastResult: { ...result, at: Date.now() } }).catch(() => {});
+	badge(result.ok ? "✓" : "!", result.ok ? "#1a7f37" : "#cf222e");
+	try {
+		chrome.notifications?.create(`send-${Date.now()}`, { type: "basic", iconUrl: chrome.runtime.getURL("icons/icon-128.png"), title: result.ok ? `Sent to Ledger: ${result.name}` : `Not sent: ${result.name}`, message: result.text });
+	} catch {
+		// notifications aren't available: the badge and the popup still say it
+	}
+}
+
+let jobs = 0;
+/** One Send: waits for the file if it's still downloading, delivers it, and announces the outcome. → the result */
+async function runJob(job, given) {
+	const p = given ? null : pending;
+	let name = given?.name || "the file";
+	jobs++;
+	badge("…", "#1f6feb");
+	try {
+		const file = given ?? (p ? await p.file : null);
+		if (!file) throw new Error("Nothing is waiting to be sent. Right-click the link and choose Send to Ledger… again.");
+		if (file.error) throw new Error(file.error);
+		name = file.name;
+		let out;
+		try {
+			out = await deliver(file, job);
+		} catch (err) {
+			if (!err.misfit) throw err;
+			// Chosen before the file was known, or it doesn't fit: nobody may be there to choose again, so keep it safe in the inbox.
+			const r = await uploadToInbox(file);
+			out = { text: `${err.message} It's in the Import inbox instead, where you can send it on.`, path: `/apps/${INBOX}?file=${r.id}`, linkText: "Open it in Ledger", fallback: true };
+		}
+		if (p && pending === p) pending = null;
+		if (job.account) await chrome.storage.local.set({ lastAccount: job.account });
+		if (!out.fallback) {
+			const kind = BILL_RE.test(file.name) || /pdf|rfc822/.test(file.type || "") ? "bill" : STATEMENT_RE.test(file.name) ? "statement" : "other";
+			const { lastDest = {} } = await chrome.storage.local.get("lastDest");
+			await chrome.storage.local.set({ lastDest: { ...lastDest, [kind]: job.dest } });
+		}
+		const result = { ok: true, name, ...out };
+		await announce(result);
+		return result;
+	} catch (err) {
+		// The file stays here (when it came from a menu click), so Send can be pressed again.
+		await announce({ ok: false, name, text: err.message, code: err.code });
+		throw err;
+	} finally {
+		if (--jobs > 0) badge("…", "#1f6feb");
+	}
+}
+
+// A notification about a send: open Ledger where the file went.
+chrome.notifications?.onClicked.addListener(async (id) => {
+	if (!id.startsWith("send-")) return;
+	chrome.notifications.clear(id);
+	const { lastResult } = await chrome.storage.local.get("lastResult");
+	const { ledgerUrl } = await settings();
+	if (ledgerUrl && lastResult?.path) chrome.tabs.create({ url: ledgerUrl + lastResult.path });
+	badge("");
+});
+
 // --- Messages from the popup and the options page ---------------------------
 
 chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
@@ -276,8 +398,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 		switch (msg.type) {
 			case "whoami":
 				return ledger({ method: "GET", path: "/api/v1/auth/me" });
-			case "inbox":
-				return uploadToInbox(msg.file);
 			case "warm-up":
 				return void warmUp();
 			case "pending": {
@@ -285,8 +405,21 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 				const p = pending;
 				if (!p) throw new Error("Nothing is waiting to be sent. Right-click the link and choose Send to Ledger… again.");
 				const file = await p.file;
-				if (pending === p) pending = null;
-				return file;
+				if (file.error) {
+					if (pending === p) pending = null;
+					return file;
+				}
+				// Only what the window shows; the file itself stays here until it is sent.
+				return { name: file.name, type: file.type, size: file.size, from: file.from };
+			}
+			case "send":
+				// From the popup's Send: the file it holds, or the one a menu click is still fetching.
+				// It runs here, so the window can be closed; the answer also goes to a notification.
+				return runJob(msg.job, msg.file);
+			case "last-result": {
+				const { lastResult = null } = await chrome.storage.local.get("lastResult");
+				chrome.action?.setBadgeText({ text: "" });
+				return lastResult;
 			}
 			case "accounts":
 				return ledger({ method: "GET", path: `/api/v1/m/${AUTOSORT}/accounts` });
@@ -297,17 +430,6 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 				if (!tab?.id) throw new Error("No tab to read.");
 				return fileOfTab(tab);
 			}
-			case "document": {
-				// Into the Import inbox (which files PDFs and scans in Ledger's Documents), then say what it is.
-				const f = await uploadToInbox(msg.file);
-				return ledger({ method: "POST", path: `/api/v1/m/${INBOX}/files/${f.id}/file-as`, json: { kind: msg.kind, ...(msg.account_code ? { account_code: msg.account_code } : {}) } });
-			}
-			case "statement":
-				return ledger({ method: "POST", path: `/api/v1/m/${AUTOSORT}/statements`, json: msg.body });
-			case "bill":
-				return ledger({ method: "POST", path: `/api/v1/m/${AUTOSORT}/bills/upload`, json: msg.body });
-			case "ledger-file":
-				return ledger({ method: "POST", path: "/api/v1/files", form: { field: "file", filename: msg.filename, type: "text/csv", base64: msg.base64 } });
 			default:
 				throw new Error(`unknown request ${msg.type}`);
 		}

@@ -271,6 +271,9 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.12.0:** Extension 0.4.0: sending happens in the background. Press Send (even before the
+  download is done), close the window and carry on; a notification and the toolbar badge say how
+  it went.
 - **0.11.0:** Extension 0.3.0: while a file downloads, choose where it goes and press Send early; it
   is sent the moment the download finishes. The extension downloaded from the Import page already
   knows this Ledger's address, and allowing it is one button in its own window (no trip to the

@@ -239,10 +239,14 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   is saved. Missing address or host permission → errors with code `setup`,
   and the popup shows its own setup form (address saved before
   `permissions.request`, which must come straight from the click).
-- Popup while a file downloads (`waiting`): the form shows at once with
-  every choice (or those fitting the link's name); Send pressed early is
-  `queued` and submitted by `arrived()`, which first drops a choice that
-  doesn't fit the file that came.
+- Sending runs in background.js (`runJob` → `deliver`), not the popup: the
+  popup sends `{ type: "send", job, file? }` (no file when a menu click's
+  download is held in `pending`) and may be closed. `runJob` waits for the
+  download, delivers, and `announce()`s (notification, badge,
+  `lastResult` for the popup's next opening). A destination that doesn't
+  fit the file (`misfit`) falls back to the Import inbox; other failures
+  keep `pending` so Send can be pressed again. The popup shows the form at
+  once while a file downloads (`waiting`).
 - Checks: Ledger's checker (`scripts/check.sh`) and
   `npx web-ext lint --source-dir ui/extension` (0 errors expected; the
   `background.service_worker` warning is expected for Firefox).

@@ -14,8 +14,12 @@ straight to your Ledger server, without saving them to your computer first. Work
   PDF viewer (Firefox's built-in one), download the PDF and drop it on the toolbar button.
 - **Toolbar button:** drop a file you already have (or choose one).
 - **No waiting around:** after *Send to Ledger…* the window opens at once while the file
-  downloads. Choose where it goes (and the account) meanwhile; press **Send** early and it's sent
-  the moment the download finishes.
+  downloads. Choose where it goes (and the account) and press **Send** straight away, then close
+  the window and carry on: the extension finishes the download and the sending in the background.
+  A browser notification says how it went (click it to open the file in Ledger), and the toolbar
+  button shows ✓ or !. If the choice turns out not to fit the file, it goes to the Import inbox
+  instead; if Ledger can't be reached (not logged in, say), the file is kept so you can press Send
+  again.
 - **Destinations:**
   - **Import inbox** (the default): any file, up to the module's size limit (25 MB unless
     changed). Larger files are sent in pieces.
