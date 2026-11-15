@@ -271,6 +271,9 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.14.0:** Tidier Settings → Import: the email options show only when reading email is on.
+  Needs Ledger 0.19.8.
+
 - **0.13.0:** Settings → Import is split into tabs: Files, Email and Scanner. Each saves on its own;
   your settings don't change. Needs Ledger 0.19.6.
 

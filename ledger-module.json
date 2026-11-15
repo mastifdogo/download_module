@@ -1,9 +1,9 @@
 {
   "id": "downloads",
   "name": "Import",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Import files into Ledger: from your browser (the Send to Ledger extension, included), from email (Ledger's mailbox), from a scanner, from a phone's camera, or uploaded. PDFs and scans are filed in Ledger's Documents. Check them, read them with AI (you approve what it found), and send them on to Auto sort, other modules or Ledger's CSV import.",
-  "ledger": ">=0.19.6",
+  "ledger": ">=0.19.8",
   "server": "server.mjs",
   "ui": "ui",
   "nav": {
@@ -53,7 +53,7 @@
         "key": "mail_source",
         "label": "Read email",
         "type": "select",
-        "default": "auto",
+        "tab": "email",
         "options": [
           {
             "value": "auto",
@@ -68,51 +68,79 @@
             "label": "No"
           }
         ],
-        "help": "Set per organization. The mailbox is the one connected under Settings → Mail (IMAP, e.g. Proton Mail Bridge, or Gmail); an admin allows Import to read mail there. If the Auto sort module reads the same mailbox for bills, turn its email off (Settings → Auto sort) and send the files from here instead.",
-        "tab": "email"
+        "default": "auto",
+        "help": "Set per organization. The mailbox is the one connected under Settings → Mail (IMAP, e.g. Proton Mail Bridge, or Gmail); an admin allows Import to read mail there. If the Auto sort module reads the same mailbox for bills, turn its email off (Settings → Auto sort) and send the files from here instead."
       },
       {
         "key": "mail_interval",
-        "label": "Check email every (minutes)",
+        "label": "Check every (minutes)",
         "type": "number",
+        "tab": "email",
         "min": 0,
         "max": 10080,
         "default": 60,
         "help": "0 turns scheduled checks off; Check email now on the Import page always works.",
-        "tab": "email"
+        "show_if": {
+          "key": "mail_source",
+          "in": [
+            "auto",
+            "mail"
+          ]
+        }
       },
       {
         "key": "mail_keywords",
         "label": "Keywords",
         "type": "textarea",
+        "tab": "email",
         "default": "invoice, bill, statement, amount due, balance due, payment due, due date, receipt, pre-authorized, autopay, facture",
         "help": "Comma-separated. Only emails containing one of these are imported. Empty: every email.",
-        "tab": "email"
+        "show_if": {
+          "key": "mail_source",
+          "in": [
+            "auto",
+            "mail"
+          ]
+        }
       },
       {
         "key": "mail_lookback_days",
         "label": "First check looks back (days)",
         "type": "number",
+        "tab": "email",
         "min": 1,
         "max": 365,
         "default": 30,
-        "tab": "email"
+        "show_if": {
+          "key": "mail_source",
+          "in": [
+            "auto",
+            "mail"
+          ]
+        }
       },
       {
         "key": "mail_save_body",
-        "label": "Save matching emails without attachments as .eml files",
+        "label": "Save matching emails that have no attachment",
         "type": "boolean",
+        "tab": "email",
         "default": true,
-        "help": "For bills sent as the email itself; Auto sort reads .eml bills.",
-        "tab": "email"
+        "help": "As .eml files, for bills sent as the email itself; Auto sort reads them.",
+        "show_if": {
+          "key": "mail_source",
+          "in": [
+            "auto",
+            "mail"
+          ]
+        }
       },
       {
         "key": "scanner_url",
         "label": "Network scanner",
         "type": "text",
+        "tab": "scanner",
         "default": "",
-        "help": "Easiest from the Scan tab (Find scanners). Or its address, e.g. 192.168.1.40 or http://scanner.local/eSCL: a scanner or printer with AirScan / eSCL on your local network.",
-        "tab": "scanner"
+        "help": "Easiest from the Scan tab (Find scanners). Or its address, e.g. 192.168.1.40 or http://scanner.local/eSCL: a scanner or printer with AirScan / eSCL on your local network."
       }
     ]
   }
