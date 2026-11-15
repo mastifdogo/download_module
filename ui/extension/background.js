@@ -297,7 +297,7 @@ async function deliver(file, job) {
 		// Into the Import inbox (which files PDFs and scans in Ledger's Documents), then say what it is.
 		const f = await uploadToInbox(file);
 		const r = await ledger({ method: "POST", path: `/api/v1/m/${INBOX}/files/${f.id}/file-as`, json: { kind, ...(kind === "statement" ? { account_code: job.account } : {}) } });
-		return { text: `Filed in Ledger's ${r.sent_to}.`, path: "/documents", linkText: "Open Documents in Ledger" };
+		return { text: `Filed in Ledger's ${r.sent_to}${kind === "statement" ? ` for account ${job.account}` : ""}.`, path: "/documents", linkText: "Open Documents in Ledger" };
 	}
 	if (dest === "statement") {
 		if (isDoc(file)) throw misfit("Auto sort reads statements as CSV, OFX, QFX or QBO, not PDFs or pictures.");

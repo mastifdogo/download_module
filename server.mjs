@@ -495,7 +495,8 @@ export default async function register(ctx) {
 		await Promise.all(data.map(async (r) => {
 			if (r.document_id != null) {
 				const d = await ctx.documents.get(r.document_id).catch(() => null);
-				if (d) r.document = { kind: d.kind, account_code: d.account_code ?? null };
+				// Read fresh each time: account codes can be renamed (Ledger 0.19.3), and a statement reconciled (0.19.4).
+				if (d) r.document = { kind: d.kind, account_code: d.account_code ?? null, account_name: d.account_name ?? null, reconciled: d.reconciled === true };
 				else Object.assign(r, { missing: true, url: null });
 			} else if (r.storage_path && !(await ctx.storage.stat(r.storage_path).catch(() => null))) Object.assign(r, { missing: true, url: null });
 		}));
@@ -569,7 +570,8 @@ export default async function register(ctx) {
 		}
 		await q(
 			`UPDATE ${T("files")} SET status = 'sent', sent_to = $2, sent_link = '/documents', sent_by = $3, sent_at = now(), sent_file_id = NULL, updated_at = now() WHERE id = $1`,
-			[f.id, `Documents (${b.kind}${change.account_code ? `, account ${change.account_code}` : ""})`, req.user.username],
+			// No account code in this note: codes can be renamed (Ledger 0.19.3); the page shows the document's current account.
+			[f.id, `Documents (${b.kind})`, req.user.username],
 		);
 		await learnKept(f.id, "sent", req.user.username);
 		await syncNotice();

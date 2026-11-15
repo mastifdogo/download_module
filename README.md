@@ -271,6 +271,9 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.12.1:** For Ledger 0.19.3–0.19.5: a statement filed in Documents shows its account as it is
+  now (account codes can be renamed) and whether it has been reconciled; no account code is
+  copied into the file's "sent to" note.
 - **0.12.0:** Extension 0.4.0: sending happens in the background. Press Send (even before the
   download is done), close the window and carry on; a notification and the toolbar badge say how
   it went.

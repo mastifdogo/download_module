@@ -346,7 +346,7 @@
 					el("td", { class: "wide" },
 						el("div", { class: "name" }, f.name),
 						f.note ? el("div", { class: "muted small" }, f.note) : null,
-						f.document && !f.missing ? el("div", { class: "muted small" }, `In Ledger's Documents${f.document.kind !== "other" ? ` as ${f.document.kind === "invoice" ? "an invoice" : `a ${f.document.kind}`}` : ""}${f.document.account_code ? ` (account ${f.document.account_code})` : ""}`) : null,
+						f.document && !f.missing ? el("div", { class: "muted small" }, `In Ledger's Documents${f.document.kind !== "other" ? ` as ${f.document.kind === "invoice" ? "an invoice" : `a ${f.document.kind}`}` : ""}${f.document.account_code ? ` for ${f.document.account_code}${f.document.account_name ? ` · ${f.document.account_name}` : ""}` : ""}${f.document.reconciled ? ", reconciled" : ""}`) : null,
 						f.status === "sent" ? el("div", { class: "small" }, "Sent to ", f.sent_link ? el("a", { href: "#", onclick: (e) => { e.preventDefault(); goLedger(f.sent_link); } }, f.sent_to) : f.sent_to, f.sent_by ? ` by ${f.sent_by}` : "") : null,
 						f.handoff ? el("div", { class: `small ${f.handoff.status === "rejected" ? "bad" : "muted"}` }, HANDOFF[f.handoff.status] || f.handoff.status, f.handoff.result ? `: ${f.handoff.result}` : "") : null,
 						actions(f),
@@ -545,7 +545,7 @@
 	async function fileAs(f, kind, account) {
 		const r = await api(`/files/${f.id}/file-as`, { method: "POST", body: JSON.stringify({ kind, ...(kind === "statement" && account ? { account_code: account } : {}) }) });
 		openId = null;
-		toast(`Filed in ${r.sent_to}.`);
+		toast(`Filed in ${r.sent_to}${kind === "statement" && account ? ` for account ${account}` : ""}.`);
 		await load();
 	}
 

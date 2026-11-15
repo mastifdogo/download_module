@@ -85,7 +85,13 @@ feature the module uses (the context file says which version added what;
   neither field and gets one flat list. Import keeps no customer or vendor
   names, so `ctx.entities` doesn't apply; CSV lists can be handed on as
   `entity` files (0.16.0).
-- Ledger runs in a Debian 12 container: the server code spawns no programs
+- Account codes can be renamed (Ledger 0.19.3): Ledger rewrites codes in
+  columns named `account_code` / `*_account_code` / `*_account` and in
+  settings whose key contains `account`. Import keeps none: a statement's
+  account lives on its document (read fresh in `GET /files`), and notes
+  like `sent_to` carry no codes. The extension's remembered `lastAccount`
+  just falls back to "Choose…" when it no longer exists.
+- Ledger runs in a Debian 13 container with PostgreSQL 18 (0.18.0): the server code spawns no programs
   (the scan bridge runs on the user's own computer, not in Ledger).
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.
 
