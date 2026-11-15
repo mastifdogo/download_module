@@ -17,28 +17,89 @@ async function settings() {
 	return { ledgerUrl: ledgerUrl.replace(/\/+$/, "") };
 }
 
-/** A tab showing a Ledger page we may script: an open one, or a new hidden one (closed afterwards). */
+// When no Ledger tab is open, a hidden helper tab is opened (robots.txt: a small same-origin page
+// any browser lets extensions script; Firefox doesn't for its JSON viewer). It is kept for a short
+// while and reused, since one send makes several calls; opening a tab for each made sending slow.
+const HELPER_IDLE_MS = 45_000;
+let helper = null; // { tabId, origin, ready: Promise, timer }
+
+function closeHelperLater() {
+	if (!helper) return;
+	clearTimeout(helper.timer);
+	const h = helper;
+	h.timer = setTimeout(() => {
+		if (helper === h) helper = null;
+		chrome.tabs.remove(h.tabId).catch(() => {});
+		chrome.storage.session.remove("helperTab").catch(() => {});
+	}, HELPER_IDLE_MS);
+}
+
+/** A helper tab left behind when the browser stopped this script early: close it. */
+async function closeStrayHelper() {
+	const { helperTab } = await chrome.storage.session.get("helperTab").catch(() => ({}));
+	if (helperTab && helperTab !== helper?.tabId) {
+		chrome.tabs.remove(helperTab).catch(() => {});
+		chrome.storage.session.remove("helperTab").catch(() => {});
+	}
+}
+
+/** A tab showing a Ledger page we may script: an open one, or the hidden helper tab. → tab id */
 async function ledgerTab(origin) {
 	const tabs = await chrome.tabs.query({ url: `${origin}/*` });
-	const open = tabs.find((t) => t.status === "complete");
-	if (open) return { tabId: open.id, close: false };
-	// robots.txt: a small same-origin page any browser lets extensions script (Firefox doesn't for its JSON viewer).
-	const tab = await chrome.tabs.create({ url: `${origin}/robots.txt`, active: false });
-	await new Promise((resolve, reject) => {
-		const timer = setTimeout(() => {
-			chrome.tabs.onUpdated.removeListener(listener);
-			reject(new Error(`Ledger didn't answer at ${origin}`));
-		}, 20_000);
-		const listener = (id, info) => {
-			if (id === tab.id && info.status === "complete") {
-				clearTimeout(timer);
+	const open = tabs.find((t) => t.status === "complete" && t.id !== helper?.tabId);
+	if (open) return open.id;
+	if (helper && helper.origin === origin) {
+		try {
+			await helper.ready;
+			await chrome.tabs.get(helper.tabId); // still there?
+			closeHelperLater();
+			return helper.tabId;
+		} catch {
+			helper = null;
+		}
+	}
+	await closeStrayHelper();
+	const h = (helper = { tabId: 0, origin, ready: null, timer: 0 });
+	h.ready = (async () => {
+		const tab = await chrome.tabs.create({ url: `${origin}/robots.txt`, active: false });
+		h.tabId = tab.id;
+		chrome.storage.session.set({ helperTab: tab.id }).catch(() => {});
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => {
 				chrome.tabs.onUpdated.removeListener(listener);
-				resolve();
-			}
-		};
-		chrome.tabs.onUpdated.addListener(listener);
-	});
-	return { tabId: tab.id, close: true };
+				reject(new Error(`Ledger didn't answer at ${origin}`));
+			}, 20_000);
+			const listener = (id, info) => {
+				if (id === tab.id && info.status === "complete") {
+					clearTimeout(timer);
+					chrome.tabs.onUpdated.removeListener(listener);
+					resolve();
+				}
+			};
+			chrome.tabs.onUpdated.addListener(listener);
+		});
+	})();
+	try {
+		await h.ready;
+	} catch (err) {
+		if (helper === h) helper = null;
+		if (h.tabId) chrome.tabs.remove(h.tabId).catch(() => {});
+		throw err;
+	}
+	closeHelperLater();
+	return h.tabId;
+}
+
+/** Gets a Ledger tab ready ahead of time (while a file downloads, or the popup is open), so Send doesn't wait for it. */
+async function warmUp() {
+	try {
+		const { ledgerUrl } = await settings();
+		if (!ledgerUrl) return;
+		const origin = new URL(ledgerUrl).origin;
+		if (await chrome.permissions.contains({ origins: [`${origin}/*`] })) await ledgerTab(origin);
+	} catch {
+		// the real call will say what's wrong
+	}
 }
 
 /**
@@ -73,37 +134,32 @@ async function callInPage(req) {
 	}
 }
 
+const UPLOADS_AT_ONCE = 3;
+
 /**
- * Runs in the Ledger page: uploads a file to the Import inbox in chunks (each request stays
- * under Ledger's 1 MiB limit). file: { name, type, base64, size, from }. Returns { status, body }.
+ * Uploads a file to the Import inbox in pieces (each request stays under Ledger's 1 MiB limit),
+ * a few at a time, telling the popup how far it is. file: { name, type, base64, size, from }.
  */
-async function uploadToInboxInPage(file) {
-	const call = async (method, path, json) => {
-		const r = await fetch(path, { method, credentials: "same-origin", headers: json ? { "Content-Type": "application/json" } : {}, body: json ? JSON.stringify(json) : undefined });
-		const text = await r.text();
-		let body = null;
-		try {
-			body = text ? JSON.parse(text) : null;
-		} catch {
-			body = { error: { message: text.slice(0, 300) } };
+async function uploadToInbox(file) {
+	const base = `/api/v1/m/${INBOX}/files`;
+	const start = await ledger({ method: "POST", path: base, json: { name: file.name, content_type: file.type || "", size: file.size, source_url: file.from || "" } });
+	const { id, chunk_size } = start;
+	const bin = atob(file.base64); // one character per byte
+	const total = Math.max(1, Math.ceil(bin.length / chunk_size));
+	let next = 0;
+	let done = 0;
+	const progress = () => chrome.runtime.sendMessage({ type: "progress", done, total }).catch(() => {});
+	progress();
+	const worker = async () => {
+		while (next < total) {
+			const i = next++;
+			await ledger({ method: "PUT", path: `${base}/${id}/chunks/${i}`, json: { data: btoa(bin.slice(i * chunk_size, (i + 1) * chunk_size)) } });
+			done++;
+			progress();
 		}
-		return { status: r.status, body };
 	};
-	try {
-		const base = "/api/v1/m/downloads/files";
-		const start = await call("POST", base, { name: file.name, content_type: file.type || "", size: file.size, source_url: file.from || "" });
-		if (start.status !== 201) return start;
-		const { id, chunk_size } = start.body;
-		const bin = atob(file.base64);
-		for (let i = 0, off = 0; off < bin.length; i++, off += chunk_size) {
-			const part = btoa(bin.slice(off, off + chunk_size));
-			const r = await call("PUT", `${base}/${id}/chunks/${i}`, { data: part });
-			if (r.status >= 300) return r;
-		}
-		return await call("POST", `${base}/${id}/complete`);
-	} catch (err) {
-		return { status: 0, body: { error: { message: String(err && err.message ? err.message : err) } } };
-	}
+	await Promise.all(Array.from({ length: Math.min(UPLOADS_AT_ONCE, total) }, worker));
+	return ledger({ method: "POST", path: `${base}/${id}/complete` });
 }
 
 /** Calls Ledger's API through a Ledger tab. Throws a readable Error on failure. */
@@ -114,11 +170,9 @@ async function ledger(req) {
 	if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
 		throw new Error(`The extension isn't allowed to reach ${origin} yet. Open its options and press Save.`);
 	}
-	const { tabId, close } = await ledgerTab(origin);
-	try {
-		const [res] = req.inbox
-			? await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: uploadToInboxInPage, args: [req.inbox] })
-			: await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: callInPage, args: [req] });
+	const tabId = await ledgerTab(origin);
+	{
+		const [res] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func: callInPage, args: [req] });
 		const out = res?.result ?? { status: 0, body: null };
 		const path = req.path ?? `/api/v1/m/${INBOX}/`;
 		if (out.status === 401) throw Object.assign(new Error("You're not logged in to Ledger in this browser. Log in, then try again."), { code: "login" });
@@ -130,8 +184,6 @@ async function ledger(req) {
 			throw new Error(details || e?.message || `Ledger answered ${out.status || "nothing"}`);
 		}
 		return out.body;
-	} finally {
-		if (close) chrome.tabs.remove(tabId).catch(() => {});
 	}
 }
 
@@ -184,27 +236,27 @@ async function fileOfTab(tab, url = tab.url) {
 chrome.runtime.onInstalled.addListener(setupMenu);
 chrome.runtime.onStartup?.addListener(setupMenu);
 
+// The file a menu click is fetching, for the window that opens straight away: { from, file: Promise }.
+// (Kept here, not in storage: files can be larger than session storage allows.)
+let pending = null;
+
 async function onLinkMenu(info, tab) {
-	if (!tab?.id) return;
-	if (info.menuItemId === "send-page" || info.menuItemId === "send-frame") {
-		const url = info.menuItemId === "send-frame" ? info.frameUrl : info.pageUrl;
-		const pending = await fileOfTab(tab, url).catch((err) => ({ error: err.message, from: url }));
-		await chrome.storage.session.set({ pending });
-		await chrome.windows.create({ url: chrome.runtime.getURL("popup.html?pending=1"), type: "popup", width: 460, height: 620 });
-		return;
-	}
-	if (info.menuItemId !== "send-link") return;
-	let file;
-	try {
-		// Fetch it inside the site's own tab (activeTab), so the bank's login cookies apply.
-		const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: fetchLinkInPage, args: [info.linkUrl] });
-		file = res?.result ?? { error: "no answer from the page" };
-	} catch (err) {
-		file = { error: err.message };
-	}
-	if (file.error) file = { error: `Couldn't download ${info.linkUrl}: ${file.error}. Save the file, then drop it into the extension instead.` };
-	await chrome.storage.session.set({ pending: { ...file, from: info.linkUrl } });
-	await chrome.windows.create({ url: chrome.runtime.getURL("popup.html?pending=1"), type: "popup", width: 460, height: 620 });
+	if (!tab?.id || !["send-link", "send-page", "send-frame"].includes(info.menuItemId)) return;
+	const url = info.menuItemId === "send-link" ? info.linkUrl : info.menuItemId === "send-frame" ? info.frameUrl : info.pageUrl;
+	// Start the download in the site's own tab (so its login applies), and open the window at once:
+	// it shows that the file is on its way instead of nothing happening until the download ends.
+	const fetching =
+		info.menuItemId === "send-link"
+			? chrome.scripting
+					.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: fetchLinkInPage, args: [url] })
+					.then(([res]) => res?.result ?? { error: "no answer from the page" }, (err) => ({ error: err.message }))
+					.then((file) => (file.error ? { error: `Couldn't download ${url}: ${file.error}. Save the file, then drop it into the extension instead.` } : { ...file, from: url }))
+			: fileOfTab(tab, url).catch((err) => ({ error: err.message }));
+	pending = { from: url, file: fetching };
+	warmUp(); // a Ledger tab, ready by the time Send is pressed
+	let host = "";
+	try { host = new URL(url).host; } catch {}
+	await chrome.windows.create({ url: chrome.runtime.getURL(`popup.html?pending=1&from=${encodeURIComponent(host)}`), type: "popup", width: 460, height: 620 });
 }
 chrome.contextMenus.onClicked.addListener(onLinkMenu);
 
@@ -216,7 +268,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 			case "whoami":
 				return ledger({ method: "GET", path: "/api/v1/auth/me" });
 			case "inbox":
-				return ledger({ inbox: msg.file });
+				return uploadToInbox(msg.file);
+			case "warm-up":
+				return void warmUp();
+			case "pending": {
+				// The file a menu click is fetching: answers when it has arrived.
+				const p = pending;
+				if (!p) throw new Error("Nothing is waiting to be sent. Right-click the link and choose Send to Ledger… again.");
+				const file = await p.file;
+				if (pending === p) pending = null;
+				return file;
+			}
 			case "accounts":
 				return ledger({ method: "GET", path: `/api/v1/m/${AUTOSORT}/accounts` });
 			case "ledger-accounts":
@@ -228,7 +290,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 			}
 			case "document": {
 				// Into the Import inbox (which files PDFs and scans in Ledger's Documents), then say what it is.
-				const f = await ledger({ inbox: msg.file });
+				const f = await uploadToInbox(msg.file);
 				return ledger({ method: "POST", path: `/api/v1/m/${INBOX}/files/${f.id}/file-as`, json: { kind: msg.kind, ...(msg.account_code ? { account_code: msg.account_code } : {}) } });
 			}
 			case "statement":

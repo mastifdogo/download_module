@@ -149,6 +149,7 @@ $("form").onsubmit = async (e) => {
 	if (!file) return;
 	const dest = $("dest").value;
 	$("send").disabled = true;
+	sending = true;
 	show("Sending…", "muted");
 	try {
 		if (dest === "inbox") {
@@ -187,9 +188,16 @@ $("form").onsubmit = async (e) => {
 	} catch (err) {
 		problem(err);
 	} finally {
+		sending = false;
 		$("send").disabled = false;
 	}
 };
+
+// How far the upload is (larger files go in pieces).
+let sending = false;
+chrome.runtime.onMessage.addListener((msg) => {
+	if (msg?.type === "progress" && sending && msg.total > 1 && msg.done < msg.total) show(`Sending… ${Math.round((msg.done / msg.total) * 100)}%`, "muted");
+});
 
 // A PDF (or other file) the browser is showing in this tab: fetched in that tab, with the site's login.
 $("send-tab").onclick = async (e) => {
@@ -209,12 +217,27 @@ $("options").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPa
 	if (!(await ledgerUrl())) {
 		show(["Set your Ledger address first. ", link("Open options", () => chrome.runtime.openOptionsPage())], "err");
 	}
-	// Opened after "Send to Ledger…" on a link: the file is waiting.
-	if (new URLSearchParams(location.search).has("pending")) {
+	// Opened right after "Send to Ledger…" on a link or PDF: the file is still being downloaded.
+	const q = new URLSearchParams(location.search);
+	if (q.has("pending")) {
 		$("send-tab").parentElement.classList.add("hidden"); // this window has no tab of its own to read
-		const { pending } = await chrome.storage.session.get("pending");
-		await chrome.storage.session.remove("pending");
-		if (pending?.error) show(pending.error, "err");
-		else if (pending) pick({ ...pending, from: pending.from });
+		$("drop").classList.add("hidden");
+		const started = Date.now();
+		const from = q.get("from") ? ` from ${q.get("from")}` : "";
+		const tick = () => show(`Downloading the file${from}… ${Math.round((Date.now() - started) / 1000)} s`, "muted");
+		tick();
+		const timer = setInterval(tick, 1000);
+		try {
+			const pending = await send({ type: "pending" });
+			clearInterval(timer);
+			if (pending.error) show(pending.error, "err");
+			else pick(pending);
+		} catch (err) {
+			clearInterval(timer);
+			problem(err);
+		}
+		$("drop").classList.remove("hidden");
+	} else if (await ledgerUrl()) {
+		send({ type: "warm-up" }).catch(() => {}); // a Ledger tab, ready by the time Send is pressed
 	}
 })();

@@ -271,6 +271,10 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.10.1:** Extension 0.2.1, more responsive: after *Send to Ledger…* its window opens at once and
+  shows the download, instead of appearing only when the download is done; a Ledger tab is got
+  ready meanwhile and reused; files are uploaded several pieces at a time, with progress.
+  Reinstall the extension from the Import page to get it.
 - **0.10.0:** Extension 0.2.0: send the PDF open in a tab (or in a frame of a page); file PDFs and
   scans straight into Ledger's Documents as a receipt, statement (with its account) or invoice;
   clearer messages when a PDF doesn't fit an Auto sort destination. Reinstall the extension from

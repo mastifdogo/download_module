@@ -226,6 +226,12 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   runs inside a Ledger tab via `chrome.scripting.executeScript({ world:
   "MAIN" })` (Ledger's cookie is SameSite=Strict and it refuses cross-site
   POSTs). Keep it that way; don't add tokens or ask Ledger for exceptions.
+- Extension responsiveness (background.js): a menu click starts the download
+  in the site's tab and opens the window at once; the popup asks for the
+  file with a `pending` message (kept in memory, not session storage: its
+  10 MB quota is smaller than files can be). `ledgerTab` reuses one hidden
+  helper tab for 45 s when no Ledger tab is open (`warmUp` opens it early);
+  `uploadToInbox` sends 3 chunks at a time and posts `progress` messages.
 - The page builds the extension zip in the browser from `ui/extension/`
   (the `EXT_FILES` list in `ui/index.html`): add new extension files there.
 - Checks: Ledger's checker (`scripts/check.sh`) and
