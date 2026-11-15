@@ -271,6 +271,10 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.11.0:** Extension 0.3.0: while a file downloads, choose where it goes and press Send early; it
+  is sent the moment the download finishes. The extension downloaded from the Import page already
+  knows this Ledger's address, and allowing it is one button in its own window (no trip to the
+  options page; the picked file stays).
 - **0.10.1:** Extension 0.2.1, more responsive: after *Send to Ledger…* its window opens at once and
   shows the download, instead of appearing only when the download is done; a Ledger tab is got
   ready meanwhile and reused; files are uploaded several pieces at a time, with progress.

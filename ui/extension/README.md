@@ -13,6 +13,9 @@ straight to your Ledger server, without saving them to your computer first. Work
   It's fetched in that tab with the site's login. Where the browser doesn't let extensions read its
   PDF viewer (Firefox's built-in one), download the PDF and drop it on the toolbar button.
 - **Toolbar button:** drop a file you already have (or choose one).
+- **No waiting around:** after *Send to Ledger…* the window opens at once while the file
+  downloads. Choose where it goes (and the account) meanwhile; press **Send** early and it's sent
+  the moment the download finishes.
 - **Destinations:**
   - **Import inbox** (the default): any file, up to the module's size limit (25 MB unless
     changed). Larger files are sent in pieces.
@@ -33,8 +36,13 @@ which downloads this folder as a zip. Or take `ui/extension/` from this reposito
 **Chrome, Edge, Brave**
 1. Unzip it. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and
    choose the folder.
-2. Open the extension's options (**Details → Extension options**). Enter your Ledger address
-   (e.g. `http://192.168.1.50:8080`), press **Save**, allow access, then press **Test**.
+2. Click the extension's toolbar button. A copy downloaded from Ledger's Import page already knows
+   that Ledger's address: press **Allow and continue** and accept the browser's question. (A copy
+   taken from the repository asks for the address there, e.g. `http://192.168.1.50:8080`.) The
+   options page (**Details → Extension options**) can change the address and has a **Test** button.
+3. To update later, unzip the new download over the same folder and press **Reload** on the
+   extensions page. From a new folder the browser treats it as a new extension, which has to be
+   allowed again.
 
 **Firefox**
 - **To try it:** open `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → choose

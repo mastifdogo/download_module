@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Send to Ledger",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Send files and PDFs from your browser to your Ledger server: the Import inbox, Documents, or Auto sort. Nothing is saved first.",
   "icons": {
     "48": "icons/icon-48.png",

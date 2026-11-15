@@ -13,7 +13,9 @@ const INBOX = "downloads"; // the Import module (id "downloads", this extension'
 const AUTOSORT = "categorizer"; // the Auto sort module, if installed
 
 async function settings() {
-	const { ledgerUrl = "" } = await chrome.storage.local.get("ledgerUrl");
+	let { ledgerUrl = "" } = await chrome.storage.local.get("ledgerUrl");
+	// A copy downloaded from Ledger's Import page comes with that Ledger's address (defaults.json).
+	if (!ledgerUrl) ledgerUrl = await fetch(chrome.runtime.getURL("defaults.json")).then((r) => r.json()).then((d) => String(d.ledgerUrl || ""), () => "");
 	return { ledgerUrl: ledgerUrl.replace(/\/+$/, "") };
 }
 
@@ -165,10 +167,10 @@ async function uploadToInbox(file) {
 /** Calls Ledger's API through a Ledger tab. Throws a readable Error on failure. */
 async function ledger(req) {
 	const { ledgerUrl } = await settings();
-	if (!ledgerUrl) throw new Error("Set your Ledger address in the extension's options first.");
+	if (!ledgerUrl) throw Object.assign(new Error("Set your Ledger address first."), { code: "setup" });
 	const origin = new URL(ledgerUrl).origin;
 	if (!(await chrome.permissions.contains({ origins: [`${origin}/*`] }))) {
-		throw new Error(`The extension isn't allowed to reach ${origin} yet. Open its options and press Save.`);
+		throw Object.assign(new Error(`The extension isn't allowed to reach ${origin} yet.`), { code: "setup" });
 	}
 	const tabId = await ledgerTab(origin);
 	{
@@ -255,8 +257,15 @@ async function onLinkMenu(info, tab) {
 	pending = { from: url, file: fetching };
 	warmUp(); // a Ledger tab, ready by the time Send is pressed
 	let host = "";
-	try { host = new URL(url).host; } catch {}
-	await chrome.windows.create({ url: chrome.runtime.getURL(`popup.html?pending=1&from=${encodeURIComponent(host)}`), type: "popup", width: 460, height: 620 });
+	let name = "";
+	try {
+		const u = new URL(url);
+		host = u.host;
+		name = decodeURIComponent(u.pathname.split("/").pop() || "");
+	} catch {}
+	// The link's own name, when it has one (statement.pdf): the window offers the fitting choices before the file is here.
+	if (!/\.[a-z0-9]{2,5}$/i.test(name)) name = "";
+	await chrome.windows.create({ url: chrome.runtime.getURL(`popup.html?pending=1&from=${encodeURIComponent(host)}&name=${encodeURIComponent(name.slice(0, 120))}`), type: "popup", width: 460, height: 620 });
 }
 chrome.contextMenus.onClicked.addListener(onLinkMenu);
 

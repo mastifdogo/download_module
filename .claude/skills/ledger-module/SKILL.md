@@ -234,6 +234,15 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   `uploadToInbox` sends 3 chunks at a time and posts `progress` messages.
 - The page builds the extension zip in the browser from `ui/extension/`
   (the `EXT_FILES` list in `ui/index.html`): add new extension files there.
+  It writes this Ledger's origin into `defaults.json` in the zip (the repo's
+  copy has an empty address); the extension falls back to it when nothing
+  is saved. Missing address or host permission → errors with code `setup`,
+  and the popup shows its own setup form (address saved before
+  `permissions.request`, which must come straight from the click).
+- Popup while a file downloads (`waiting`): the form shows at once with
+  every choice (or those fitting the link's name); Send pressed early is
+  `queued` and submitted by `arrived()`, which first drops a choice that
+  doesn't fit the file that came.
 - Checks: Ledger's checker (`scripts/check.sh`) and
   `npx web-ext lint --source-dir ui/extension` (0 errors expected; the
   `background.service_worker` warning is expected for Firefox).

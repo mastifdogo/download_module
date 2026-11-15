@@ -31,9 +31,61 @@ function link(text, onclick) {
 	return a;
 }
 
+/** The address saved in options, else the one this copy came with (downloaded from Ledger's Import page). */
 async function ledgerUrl() {
-	return (await chrome.storage.local.get("ledgerUrl")).ledgerUrl?.replace(/\/+$/, "") || "";
+	const saved = (await chrome.storage.local.get("ledgerUrl")).ledgerUrl;
+	if (saved) return saved.replace(/\/+$/, "");
+	try {
+		return String((await (await fetch(chrome.runtime.getURL("defaults.json"))).json()).ledgerUrl || "").replace(/\/+$/, "");
+	} catch {
+		return "";
+	}
 }
+
+/** Whether the address is known and the browser lets the extension reach it. */
+async function ready() {
+	const u = await ledgerUrl();
+	if (!u) return false;
+	try {
+		return await chrome.permissions.contains({ origins: [`${new URL(u).origin}/*`] });
+	} catch {
+		return false;
+	}
+}
+
+// Setting up here, without a trip to the options page: the address (filled in already in a copy
+// downloaded from Ledger) and the browser's permission for it. The picked file stays.
+async function showSetup() {
+	$("setup-url").value ||= await ledgerUrl();
+	$("setup").classList.remove("hidden");
+	$("send").disabled = true;
+}
+$("setup").onsubmit = (e) => {
+	e.preventDefault();
+	let url;
+	try {
+		let s = $("setup-url").value.trim();
+		if (!s) throw new Error("empty");
+		if (!/^https?:\/\//i.test(s)) s = "http://" + s;
+		const u = new URL(s);
+		url = u.origin + u.pathname.replace(/\/+$/, "");
+	} catch {
+		return show("That isn't a web address.", "err");
+	}
+	// Saved first: a toolbar popup can close when the browser's permission question opens, and the
+	// request must come straight from this click.
+	chrome.storage.local.set({ ledgerUrl: url });
+	chrome.permissions.request({ origins: [`${new URL(url).origin}/*`] }).then(async (granted) => {
+		if (!granted) return show("Without that permission the extension can't reach Ledger.", "err");
+		$("setup").classList.add("hidden");
+		$("send").disabled = false;
+		show("");
+		autosort = null;
+		accounts = [];
+		await checkAutosort();
+		if (!$("statement-opts").classList.contains("hidden")) loadAccounts();
+	}, (err) => show(String(err?.message || err), "err"));
+};
 async function openLedger(path = "/") {
 	const u = await ledgerUrl();
 	if (!u) return chrome.runtime.openOptionsPage();
@@ -55,6 +107,7 @@ async function checkAutosort() {
 		accounts = data.filter((a) => a.type === "asset" || a.type === "liability");
 		autosort = true;
 	} catch (err) {
+		if (err.code === "setup") showSetup();
 		if (err.code !== "no-autosort") return null; // not logged in etc.: decide later
 		autosort = false;
 	}
@@ -77,7 +130,7 @@ async function loadAccounts() {
 		accounts = data.filter((a) => a.type === "asset" || a.type === "liability");
 		await fillAccounts();
 	} catch (err) {
-		$("account").replaceChildren(new Option("Couldn't load accounts", ""));
+		$("account").replaceChildren(new Option(err.code === "setup" ? "Allow access below first" : "Couldn't load accounts", ""));
 		problem(err);
 	}
 }
@@ -93,27 +146,66 @@ async function fillAccounts() {
 
 function problem(err) {
 	const parts = [err.message];
+	if (err.code === "setup") {
+		showSetup();
+		return show("One step before sending: let the extension reach your Ledger.", "muted");
+	}
 	if (err.code === "login") parts.push(" ", link("Open Ledger to log in", () => openLedger("/login")));
 	else if (/options/i.test(err.message)) parts.push(" ", link("Options", () => chrome.runtime.openOptionsPage()));
 	show(parts, "err");
 }
 
+const describe = (f) => `${f.name} · ${f.size < 1048576 ? `${(f.size / 1024).toFixed(f.size < 10240 ? 1 : 0)} KB` : `${(f.size / 1048576).toFixed(1)} MB`}${f.from ? ` · from ${new URL(f.from).host}` : ""}`;
+const kindOf = (f) => (BILL_RE.test(f.name) || /pdf|rfc822/.test(f.type || "") ? "bill" : STATEMENT_RE.test(f.name) ? "statement" : "other");
+
+/** Shows only the choices that fit the file (all of them while its kind isn't known yet). */
+function fitChoices(f, unknown = false) {
+	// Documents takes PDFs and scans only; the journal import CSV files only.
+	document.querySelectorAll("option.doc").forEach((o) => (o.hidden = o.disabled = !unknown && !isDoc(f)));
+	document.querySelectorAll("option.csv").forEach((o) => (o.hidden = o.disabled = !unknown && !/\.csv$/i.test(f.name)));
+}
+
+/** The form, with the inbox chosen unless you last sent this kind of file somewhere else. */
+async function showForm(f, unknown = false) {
+	$("form").classList.remove("hidden");
+	fitChoices(f, unknown);
+	const { lastDest = {} } = await chrome.storage.local.get("lastDest");
+	$("dest").value = lastDest[kindOf(f)] || "inbox";
+	if ($("dest").selectedOptions[0]?.disabled || $("dest").selectedIndex < 0) $("dest").value = "inbox";
+	$("dest").onchange();
+	checkAutosort();
+}
+
 async function pick(f) {
 	file = f;
 	$("picked").classList.remove("hidden");
-	$("picked").textContent = `${f.name} · ${f.size < 1048576 ? `${(f.size / 1024).toFixed(f.size < 10240 ? 1 : 0)} KB` : `${(f.size / 1048576).toFixed(1)} MB`}${f.from ? ` · from ${new URL(f.from).host}` : ""}`;
-	$("form").classList.remove("hidden");
-	// Documents takes PDFs and scans only.
-	document.querySelectorAll("option.doc").forEach((o) => (o.hidden = o.disabled = !isDoc(f)));
-	document.querySelectorAll("option.csv").forEach((o) => (o.hidden = o.disabled = !/\.csv$/i.test(f.name)));
-	// The inbox unless you last sent this kind of file somewhere else.
-	const kind = BILL_RE.test(f.name) || /pdf|rfc822/.test(f.type) ? "bill" : STATEMENT_RE.test(f.name) ? "statement" : "other";
-	const { lastDest = {} } = await chrome.storage.local.get("lastDest");
-	$("dest").value = lastDest[kind] || "inbox";
-	if ($("dest").selectedOptions[0]?.disabled || $("dest").selectedIndex < 0) $("dest").value = "inbox";
-	$("dest").onchange();
+	$("picked").textContent = describe(f);
 	show("");
-	checkAutosort();
+	await showForm(f);
+}
+
+// A file still downloading (after "Send to Ledger…" on a link): the form is there already, so the
+// fields can be chosen meanwhile, and Send pressed early sends as soon as the file has arrived.
+let waiting = false;
+let queued = false;
+function arrived(f) {
+	waiting = false;
+	file = f;
+	$("picked").textContent = describe(f);
+	fitChoices(f);
+	if ($("dest").selectedOptions[0]?.disabled) {
+		// What was chosen while waiting doesn't fit what the file turned out to be.
+		queued = false;
+		$("dest").value = "inbox";
+		$("dest").onchange();
+		$("send").disabled = false;
+		return show(`${f.name} can't be sent that way; choose again.`, "err");
+	}
+	if (queued) {
+		queued = false;
+		$("send").disabled = false;
+		$("form").requestSubmit();
+	}
 }
 
 async function readFile(f) {
@@ -146,6 +238,12 @@ $("account").onchange = () => {
 
 $("form").onsubmit = async (e) => {
 	e.preventDefault();
+	if (waiting) {
+		if ($("dest").value.endsWith("statement") && !$("account").value) return show("Choose the bank or card account the statement is for.", "err");
+		queued = true;
+		$("send").disabled = true;
+		return show("Got it: this sends as soon as the download finishes.", "ok");
+	}
 	if (!file) return;
 	const dest = $("dest").value;
 	$("send").disabled = true;
@@ -214,8 +312,9 @@ $("open-ledger").onclick = (e) => { e.preventDefault(); openLedger(); };
 $("options").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
 
 (async () => {
-	if (!(await ledgerUrl())) {
-		show(["Set your Ledger address first. ", link("Open options", () => chrome.runtime.openOptionsPage())], "err");
+	if (!(await ready())) {
+		showSetup();
+		show("One step before sending: let the extension reach your Ledger. You can pick the file meanwhile.", "muted");
 	}
 	// Opened right after "Send to Ledger…" on a link or PDF: the file is still being downloaded.
 	const q = new URLSearchParams(location.search);
@@ -224,20 +323,32 @@ $("options").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPa
 		$("drop").classList.add("hidden");
 		const started = Date.now();
 		const from = q.get("from") ? ` from ${q.get("from")}` : "";
-		const tick = () => show(`Downloading the file${from}… ${Math.round((Date.now() - started) / 1000)} s`, "muted");
+		const name = q.get("name") || "";
+		const tick = () => ($("picked").textContent = `Downloading ${name || "the file"}${from}… ${Math.round((Date.now() - started) / 1000)} s. Choose where it goes meanwhile.`);
+		$("picked").classList.remove("hidden");
 		tick();
 		const timer = setInterval(tick, 1000);
+		// The form now, from the link's name (every choice when the name doesn't say what it is).
+		waiting = true;
+		showForm({ name, type: "" }, !/\.[a-z0-9]{2,5}$/i.test(name));
+		const failed = (say) => {
+			waiting = queued = false;
+			$("form").classList.add("hidden");
+			$("picked").classList.add("hidden");
+			$("send").disabled = false;
+			say();
+		};
 		try {
 			const pending = await send({ type: "pending" });
 			clearInterval(timer);
-			if (pending.error) show(pending.error, "err");
-			else pick(pending);
+			if (pending.error) failed(() => show(pending.error, "err"));
+			else arrived(pending);
 		} catch (err) {
 			clearInterval(timer);
-			problem(err);
+			failed(() => problem(err));
 		}
 		$("drop").classList.remove("hidden");
-	} else if (await ledgerUrl()) {
+	} else if (await ready()) {
 		send({ type: "warm-up" }).catch(() => {}); // a Ledger tab, ready by the time Send is pressed
 	}
 })();

@@ -25,3 +25,5 @@ input[type="checkbox"] { padding: 0; }
 a { color: var(--accent); }
 .foot { margin-top: 14px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; }
+.setup { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.setup input { width: 100%; }

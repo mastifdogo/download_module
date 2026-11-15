@@ -35,6 +35,8 @@ $("test").onclick = async () => {
 	else say(r?.error || "No answer.", "err");
 };
 
-chrome.storage.local.get("ledgerUrl").then(({ ledgerUrl }) => {
+chrome.storage.local.get("ledgerUrl").then(async ({ ledgerUrl }) => {
+	// A copy downloaded from Ledger's Import page comes with that Ledger's address: press Save to allow it.
+	if (!ledgerUrl) ledgerUrl = await fetch(chrome.runtime.getURL("defaults.json")).then((r) => r.json()).then((d) => d.ledgerUrl || "", () => "");
 	if (ledgerUrl) $("url").value = ledgerUrl;
 });

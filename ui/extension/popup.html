@@ -41,6 +41,13 @@
 </form>
 
 <p id="msg" class="small"></p>
+<form id="setup" class="setup hidden">
+	<label>Your Ledger's address
+		<input type="text" id="setup-url" placeholder="https://ledger.example.com" autocomplete="url" spellcheck="false">
+	</label>
+	<button class="btn primary" id="setup-save">Allow and continue</button>
+	<p class="muted small">The browser asks once whether the extension may reach this address. It's the only site it talks to.</p>
+</form>
 <p class="muted small foot"><a href="#" id="open-ledger">Open Ledger</a> · <a href="#" id="options">Options</a></p>
 <script src="popup.js"></script>
 </body>
