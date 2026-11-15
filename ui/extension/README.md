@@ -7,12 +7,20 @@ straight to your Ledger server, without saving them to your computer first. Work
 - **Right-click a download link** on your bank's or a supplier's site and choose **Send to
   Ledger…**. The file is downloaded in that tab, with that site's login, and a small window asks
   where it goes.
+- **A PDF open in the browser** (a statement shown in the PDF viewer, or inside the bank's page):
+  click the toolbar button and **Send the PDF or file open in this tab**, or right-click the PDF
+  and choose **Send this PDF to Ledger…** (inside a page: **Send this frame's file to Ledger…**).
+  It's fetched in that tab with the site's login. Where the browser doesn't let extensions read its
+  PDF viewer (Firefox's built-in one), download the PDF and drop it on the toolbar button.
 - **Toolbar button:** drop a file you already have (or choose one).
 - **Destinations:**
   - **Import inbox** (the default): any file, up to the module's size limit (25 MB unless
     changed). Larger files are sent in pieces.
+  - **Ledger's Documents**, for PDFs and PNG/JPEG scans: as a **receipt**, a **statement** (with
+    its bank or card account) or an **invoice or bill**. It goes through the Import inbox, which
+    files it in Documents.
   - **Auto sort** (if that module is installed): statements (CSV, OFX, QFX, QBO) are staged for
-    review with an account; bills (PDF, EML) go to its Bills tab.
+    review with an account; bills (PDF, EML, up to 700 KB) go to its Bills tab.
   - **Ledger's CSV files** for journal import.
 
   It remembers where you last sent each kind of file.

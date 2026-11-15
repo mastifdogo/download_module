@@ -7,7 +7,9 @@ scanner** or with a **phone's camera**, or **uploaded**. (It was called *Downloa
 `downloads`, so installs and data carry over.)
 
 - **Send from any website:** right-click a download link (a bank statement, a supplier's invoice)
-  and choose *Send to Ledger…*, or drop a file on the extension's toolbar button. It goes straight
+  and choose *Send to Ledger…*, send the PDF that's open in the tab, or drop a file on the
+  extension's toolbar button. PDFs and scans can go straight into Ledger's Documents as a receipt,
+  statement or invoice. It goes straight
   to Ledger, without being saved to your computer, using the website's login for the download and
   your Ledger login for the upload.
 - **Email:** a scheduled check (hourly by default, or *Check email now*) reads the mailbox
@@ -269,6 +271,10 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.10.0:** Extension 0.2.0: send the PDF open in a tab (or in a frame of a page); file PDFs and
+  scans straight into Ledger's Documents as a receipt, statement (with its account) or invoice;
+  clearer messages when a PDF doesn't fit an Auto sort destination. Reinstall the extension from
+  the Import page to get it.
 - **0.9.0:** For Ledger 0.19 (now required): PDFs and PNG/JPEG scans are filed in Ledger's
   **Documents**, with *file it as a receipt / statement / invoice*; existing ones move over.
   Email is read through Ledger's mailbox (Settings → Mail), so Import's own IMAP settings and

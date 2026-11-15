@@ -11,25 +11,31 @@
 
 <div id="drop" class="drop" tabindex="0">
 	<p id="drop-text"><strong>Drop a file here</strong> or <label class="link">choose one<input type="file" id="file" class="hidden" ></label></p>
-	<p class="muted small">Any file to the Import inbox · statements and bills straight to Auto sort</p>
+	<p class="muted small">Any file to the Import inbox · PDFs and scans filed in Ledger's Documents · statements and bills straight to Auto sort</p>
 </div>
+<p class="small"><a href="#" id="send-tab">Send the PDF or file open in this tab</a></p>
 <p id="picked" class="small hidden"></p>
 
 <form id="form" class="hidden">
 	<label>Send as
 		<select id="dest">
 			<option value="inbox">Ledger's Import inbox (sort it out in Ledger later)</option>
+			<option value="doc-receipt" class="doc">Receipt, filed in Ledger's Documents</option>
+			<option value="doc-statement" class="doc">Statement (PDF), filed in Ledger's Documents with its account</option>
+			<option value="doc-invoice" class="doc">Invoice or bill, filed in Ledger's Documents</option>
 			<option value="statement" class="autosort">Statement (Auto sort): review and post its transactions</option>
 			<option value="bill" class="autosort">Bill or receipt (Auto sort)</option>
-			<option value="ledger-file">CSV file for Ledger's journal import</option>
+			<option value="ledger-file" class="csv">CSV file for Ledger's journal import</option>
 		</select>
 	</label>
 	<div id="statement-opts">
 		<label>Bank or card account <select id="account"><option value="">Loading…</option></select></label>
+		<div id="csv-opts">
 		<label class="inline"><input type="checkbox" id="flip"> Purchases show as positive amounts (flip signs)</label>
 		<label>Dates like 03/04/2026 are
 			<select id="date-order"><option value="auto">Detect</option><option value="mdy">Month/Day/Year</option><option value="dmy">Day/Month/Year</option></select>
 		</label>
+		</div>
 	</div>
 	<button class="btn primary" id="send">Send</button>
 </form>

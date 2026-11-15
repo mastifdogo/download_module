@@ -1,6 +1,7 @@
 // Send to Ledger: the popup (also opened as a window after "Send to Ledger…" on a link).
-// Destinations: the Import inbox (always), Auto sort statement/bill (when that module is
-// installed), and Ledger's CSV files.
+// Destinations: the Import inbox (always), Ledger's Documents for PDFs and scans (as a receipt,
+// statement or invoice), Auto sort statement/bill (when that module is installed), and Ledger's
+// CSV files.
 const $ = (id) => document.getElementById(id);
 const send = (msg) => chrome.runtime.sendMessage(msg).then((r) => {
 	if (!r?.ok) throw Object.assign(new Error(r?.error || "no answer from the extension"), { code: r?.code });
@@ -10,6 +11,8 @@ const STATEMENT_RE = /\.(csv|ofx|qfx|qbo|txt)$/i;
 const BILL_RE = /\.(pdf|eml)$/i;
 const MAX_STATEMENT = 1_000_000; // characters Ledger accepts in one request
 const MAX_BILL = 700_000; // bytes (base64 grows it by a third)
+/** What Ledger's Documents keeps: PDFs, and PNG or JPEG scans. */
+const isDoc = (f) => /\.(pdf|png|jpe?g)$/i.test(f.name) || /^(application\/pdf|image\/(png|jpeg))/i.test(f.type || "");
 
 let file = null; // { name, type, base64, size, from? }
 let accounts = [];
@@ -66,7 +69,11 @@ async function checkAutosort() {
 async function loadAccounts() {
 	if (accounts.length) return fillAccounts();
 	try {
-		const { data } = await send({ type: "accounts" });
+		// Auto sort's list when it's installed, else Ledger's own accounts.
+		const { data } = await send({ type: autosort === false ? "ledger-accounts" : "accounts" }).catch((err) => {
+			if (err.code !== "no-autosort") throw err;
+			return send({ type: "ledger-accounts" });
+		});
 		accounts = data.filter((a) => a.type === "asset" || a.type === "liability");
 		await fillAccounts();
 	} catch (err) {
@@ -96,10 +103,14 @@ async function pick(f) {
 	$("picked").classList.remove("hidden");
 	$("picked").textContent = `${f.name} · ${f.size < 1048576 ? `${(f.size / 1024).toFixed(f.size < 10240 ? 1 : 0)} KB` : `${(f.size / 1048576).toFixed(1)} MB`}${f.from ? ` · from ${new URL(f.from).host}` : ""}`;
 	$("form").classList.remove("hidden");
+	// Documents takes PDFs and scans only.
+	document.querySelectorAll("option.doc").forEach((o) => (o.hidden = o.disabled = !isDoc(f)));
+	document.querySelectorAll("option.csv").forEach((o) => (o.hidden = o.disabled = !/\.csv$/i.test(f.name)));
 	// The inbox unless you last sent this kind of file somewhere else.
 	const kind = BILL_RE.test(f.name) || /pdf|rfc822/.test(f.type) ? "bill" : STATEMENT_RE.test(f.name) ? "statement" : "other";
 	const { lastDest = {} } = await chrome.storage.local.get("lastDest");
 	$("dest").value = lastDest[kind] || "inbox";
+	if ($("dest").selectedOptions[0]?.disabled || $("dest").selectedIndex < 0) $("dest").value = "inbox";
 	$("dest").onchange();
 	show("");
 	checkAutosort();
@@ -123,8 +134,9 @@ drop.ondrop = (e) => {
 
 $("dest").onchange = () => {
 	const d = $("dest").value;
-	$("statement-opts").classList.toggle("hidden", d !== "statement");
-	if (d === "statement") loadAccounts();
+	$("statement-opts").classList.toggle("hidden", d !== "statement" && d !== "doc-statement");
+	$("csv-opts").classList.toggle("hidden", d !== "statement"); // signs and date order are for CSV statements
+	if (d === "statement" || d === "doc-statement") loadAccounts();
 };
 $("account").onchange = () => {
 	const a = accounts.find((x) => x.code === $("account").value);
@@ -143,7 +155,15 @@ $("form").onsubmit = async (e) => {
 			const r = await send({ type: "inbox", file });
 			const dup = r.duplicate_of ? ` The same file arrived before (${r.duplicate_of.name}).` : "";
 			show([`Sent to the Import inbox.${dup} `, link("Open it in Ledger", () => openLedger(`/apps/downloads?file=${r.id}`))], "ok");
+		} else if (dest.startsWith("doc-")) {
+			const kind = dest.slice(4);
+			const code = kind === "statement" ? $("account").value : "";
+			if (kind === "statement" && !code) throw new Error("Choose the bank or card account the statement is for.");
+			const r = await send({ type: "document", file, kind, account_code: code });
+			if (code) await chrome.storage.local.set({ lastAccount: code });
+			show([`Filed in Ledger's ${r.sent_to}. `, link("Open Documents in Ledger", () => openLedger("/documents"))], "ok");
 		} else if (dest === "statement") {
+			if (isDoc(file)) throw new Error("Auto sort reads statements as CSV, OFX, QFX or QBO. For a PDF statement, choose \"Statement (PDF), filed in Ledger's Documents\".");
 			if (!STATEMENT_RE.test(file.name)) throw new Error("Statements must be CSV, OFX, QFX or QBO files.");
 			const code = $("account").value;
 			if (!code) throw new Error("Choose the bank or card account the statement is for.");
@@ -153,7 +173,7 @@ $("form").onsubmit = async (e) => {
 			await chrome.storage.local.set({ lastAccount: code });
 			show([`${r.transactions} transactions staged${r.duplicates ? ` (${r.duplicates} already uploaded were skipped)` : ""}. `, link("Review them in Ledger", () => openLedger(`/apps/categorizer?statement=${r.id}`))], "ok");
 		} else if (dest === "bill") {
-			if (file.size > MAX_BILL) throw new Error("Bills can be up to 700 KB here.");
+			if (file.size > MAX_BILL) throw new Error("Auto sort takes bills up to 700 KB this way. Choose \"Invoice or bill, filed in Ledger's Documents\" or the Import inbox instead: they take larger files.");
 			const r = await send({ type: "bill", body: { filename: file.name, content_base64: file.base64 } });
 			show([`Bill read: ${r.vendor || "unknown vendor"}${r.amount_cents != null ? `, ${(r.amount_cents / 100).toFixed(2)} ${r.currency}` : ""}. `, link("Review it in Ledger", () => openLedger(`/apps/categorizer?bill=${r.id}`))], "ok");
 		} else {
@@ -171,6 +191,17 @@ $("form").onsubmit = async (e) => {
 	}
 };
 
+// A PDF (or other file) the browser is showing in this tab: fetched in that tab, with the site's login.
+$("send-tab").onclick = async (e) => {
+	e.preventDefault();
+	show("Getting the file from this tab…", "muted");
+	try {
+		pick(await send({ type: "tab-file" }));
+	} catch (err) {
+		problem(err);
+	}
+};
+
 $("open-ledger").onclick = (e) => { e.preventDefault(); openLedger(); };
 $("options").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
 
@@ -180,6 +211,7 @@ $("options").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPa
 	}
 	// Opened after "Send to Ledger…" on a link: the file is waiting.
 	if (new URLSearchParams(location.search).has("pending")) {
+		$("send-tab").parentElement.classList.add("hidden"); // this window has no tab of its own to read
 		const { pending } = await chrome.storage.session.get("pending");
 		await chrome.storage.session.remove("pending");
 		if (pending?.error) show(pending.error, "err");

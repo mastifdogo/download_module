@@ -156,16 +156,44 @@ async function fetchLinkInPage(url) {
 
 // --- Right-click a link: "Send to Ledger" -----------------------------------
 
+const PDF_URLS = ["*://*/*.pdf", "*://*/*.pdf?*", "*://*/*.PDF", "*://*/*.PDF?*"];
 function setupMenu() {
 	chrome.contextMenus.removeAll(() => {
 		chrome.contextMenus.create({ id: "send-link", title: "Send to Ledger…", contexts: ["link"] });
+		// A PDF shown in the tab, or in a frame of the page (how many banks show statements).
+		chrome.contextMenus.create({ id: "send-page", title: "Send this PDF to Ledger…", contexts: ["page"], documentUrlPatterns: PDF_URLS });
+		chrome.contextMenus.create({ id: "send-frame", title: "Send this frame's file to Ledger…", contexts: ["frame"] });
 	});
+}
+
+/** The file a tab is showing (its own address), fetched inside the tab so the site's login applies. */
+async function fileOfTab(tab, url = tab.url) {
+	if (!/^https?:/i.test(url || "")) throw new Error("This tab isn't a web address the extension can read. Save the file, then drop it here.");
+	let file;
+	try {
+		const [res] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", func: fetchLinkInPage, args: [url] });
+		file = res?.result ?? { error: "no answer from the page" };
+	} catch (err) {
+		file = { error: err.message };
+	}
+	if (file.error) throw new Error(`Couldn't get the file from this tab (${file.error}). Download it, then drop it here.`);
+	if (/^text\/html/i.test(file.type)) throw new Error("This tab shows a web page, not a file. Right-click the link to the PDF and choose Send to Ledger…, or open the PDF in its own tab first.");
+	if (!/\.[a-z0-9]{2,5}$/i.test(file.name) && /pdf/i.test(file.type)) file.name += ".pdf";
+	return { ...file, from: url };
 }
 chrome.runtime.onInstalled.addListener(setupMenu);
 chrome.runtime.onStartup?.addListener(setupMenu);
 
 async function onLinkMenu(info, tab) {
-	if (info.menuItemId !== "send-link" || !tab?.id) return;
+	if (!tab?.id) return;
+	if (info.menuItemId === "send-page" || info.menuItemId === "send-frame") {
+		const url = info.menuItemId === "send-frame" ? info.frameUrl : info.pageUrl;
+		const pending = await fileOfTab(tab, url).catch((err) => ({ error: err.message, from: url }));
+		await chrome.storage.session.set({ pending });
+		await chrome.windows.create({ url: chrome.runtime.getURL("popup.html?pending=1"), type: "popup", width: 460, height: 620 });
+		return;
+	}
+	if (info.menuItemId !== "send-link") return;
 	let file;
 	try {
 		// Fetch it inside the site's own tab (activeTab), so the bank's login cookies apply.
@@ -191,6 +219,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 				return ledger({ inbox: msg.file });
 			case "accounts":
 				return ledger({ method: "GET", path: `/api/v1/m/${AUTOSORT}/accounts` });
+			case "ledger-accounts":
+				return ledger({ method: "GET", path: "/api/v1/accounts" });
+			case "tab-file": {
+				const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+				if (!tab?.id) throw new Error("No tab to read.");
+				return fileOfTab(tab);
+			}
+			case "document": {
+				// Into the Import inbox (which files PDFs and scans in Ledger's Documents), then say what it is.
+				const f = await ledger({ inbox: msg.file });
+				return ledger({ method: "POST", path: `/api/v1/m/${INBOX}/files/${f.id}/file-as`, json: { kind: msg.kind, ...(msg.account_code ? { account_code: msg.account_code } : {}) } });
+			}
 			case "statement":
 				return ledger({ method: "POST", path: `/api/v1/m/${AUTOSORT}/statements`, json: msg.body });
 			case "bill":
