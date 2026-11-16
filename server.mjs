@@ -207,6 +207,8 @@ const notFound404 = (err) => err?.status === 404 || err?.constructor?.name === "
 
 /** @param {any} ctx */
 export default async function register(ctx) {
+	/** Whether the admin asking has Ledger's root mode on (Ledger 0.21.1: older Ledger has no ctx.root). */
+	const inRoot = (req) => req?.user?.root === true && typeof ctx.root?.remove === "function";
 	const T = (name) => `${ctx.schema}.${name}`;
 	const q = (sql, params) => ctx.db.query(sql, params);
 	const bad = (msg) => new ctx.HttpError(422, msg);
@@ -821,6 +823,16 @@ export default async function register(ctx) {
 	// DELETE /files/:id[?learn=1]: with learn=1 an email file also teaches the email check to skip files like it.
 	ctx.route("DELETE", "/files/:id", async (req) => {
 		const f = await getFile(req.params.id);
+		if (inRoot(req)) {
+			// Root mode (Ledger 0.21.1): through Ledger, so the deletion can be reversed. Rows that hang off
+			// the file go first, one by one (cascaded rows aren't kept); the file's document and stored copy
+			// stay, so a reversed deletion brings the file back whole.
+			const { rows: ex } = await q(`SELECT id FROM ${T("extractions")} WHERE file_id = $1 ORDER BY id`, [f.id]);
+			for (const e of ex) await ctx.root.remove(req, "extractions", e.id, `Import: deleted an AI extraction of ${f.name}`);
+			await ctx.root.remove(req, "files", f.id, `Import: deleted ${f.name}`);
+			await syncNotice();
+			return { deleted: true, learned: false, root: true };
+		}
 		const learn = req.query.get("learn") === "1";
 		const { rows } = await q(
 			`WITH gone AS (DELETE FROM ${T("files")} WHERE id = $1 RETURNING mail_features, origin_detail, note, name)
@@ -880,8 +892,17 @@ export default async function register(ctx) {
 
 	ctx.route("DELETE", "/training/:id", async (req) => {
 		if (!/^\d+$/.test(req.params.id)) throw new ctx.HttpError(404, "no such example");
+		if (inRoot(req)) return void (await ctx.root.remove(req, "mail_training", req.params.id, "Import: deleted something the email check learned"));
 		const { rowCount } = await q(`DELETE FROM ${T("mail_training")} WHERE id = $1`, [req.params.id]);
 		if (!rowCount) throw new ctx.HttpError(404, "no such example");
+	});
+
+	// DELETE /extractions/:id: root mode only (Ledger 0.21.1). An AI extraction is otherwise kept once decided.
+	ctx.route("DELETE", "/extractions/:id", async (req) => {
+		if (!inRoot(req)) throw new ctx.HttpError(403, "an extraction can only be deleted in root mode");
+		const e = await getExtraction(req.params.id);
+		await ctx.root.remove(req, "extractions", e.id, `Import: deleted the AI extraction of ${e.file_name}`);
+		await syncNotice();
 	});
 
 	// POST /training/forget {sender}: forget everything learned about one sender ("" or omitted: everything).
@@ -896,7 +917,20 @@ export default async function register(ctx) {
 	});
 
 	// GET /me: who's asking and which Ledger, for the page (e.g. "+ New account…" needs Ledger 0.11.3).
-	ctx.route("GET", "/me", async (req) => ({ username: req.user.username, role: req.user.role, ledger: ctx.ledgerVersion, version: ctx.version }));
+	ctx.route("GET", "/me", async (req) => ({ username: req.user.username, role: req.user.role, root: inRoot(req), ledger: ctx.ledgerVersion, version: ctx.version }));
+
+	// Root mode can't be left while one of Import's records is truly broken: a file with no content anywhere.
+	if (typeof ctx.root?.onCheck === "function") {
+		ctx.root.onCheck(async () => {
+			const { rows } = await q(
+				`SELECT f.id, f.name FROM ${T("files")} f
+				  WHERE f.status <> 'uploading' AND f.document_id IS NULL AND f.storage_path IS NULL
+				    AND NOT EXISTS (SELECT 1 FROM ${T("file_chunks")} c WHERE c.file_id = f.id)
+				  ORDER BY f.id LIMIT 20`,
+			);
+			return rows.map((r) => `file ${r.id} (${r.name}) has no content; delete it on the Import page.`); // Ledger puts the module's name in front
+		});
+	}
 
 	// ---------------------------------------------------------------------
 	// Housekeeping: abandoned uploads, and old sent/archived files when Settings say so
@@ -944,16 +978,17 @@ export default async function register(ctx) {
 
 	/**
 	 * Stored files no row points to (after a restore from a dump file, which brings back older tables
-	 * but leaves the stored files as they were): removed once they're an hour old, so a file being
-	 * saved right now (stored first, then its row) is never taken.
+	 * but leaves the stored files as they were, or a root-mode deletion): removed once they're 30 days
+	 * old, so a file being saved right now (stored first, then its row) is never taken.
 	 */
 	async function removeOrphans(org) {
 		const stored = await ctx.storage.list("inbox").catch(() => []);
 		if (stored.length === 0) return;
 		const { rows } = await q(`SELECT storage_path FROM ${T("files")} WHERE storage_path IS NOT NULL`);
 		const known = new Set(rows.map((r) => r.storage_path));
-		const hourAgo = Date.now() - 3600_000;
-		const orphans = stored.filter((f) => !known.has(f.path) && new Date(f.modified_at).getTime() < hourAgo).map((f) => f.path);
+		// 30 days: long enough that a deletion made in root mode and reversed later finds its file still there.
+		const cutoff = Date.now() - 30 * 86_400_000;
+		const orphans = stored.filter((f) => !known.has(f.path) && new Date(f.modified_at).getTime() < cutoff).map((f) => f.path);
 		if (orphans.length === 0) return;
 		for (const p of orphans) await unplace({ storage_path: p });
 		ctx.log.info("removed stored files no inbox row points to (e.g. after a restore)", { org: String(org.id), files: orphans.length });

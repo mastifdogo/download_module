@@ -215,6 +215,14 @@ and the scanner get `origin` `email` / `scanner` and `origin_detail` (the sender
 
 Uploads that never complete are removed after a day.
 
+### Root mode
+
+When an admin turns on Ledger's root mode (Ledger 0.21.1), the inbox shows a red **Root** mark and
+**Root: delete** on each file. Those deletions go through Ledger: they're listed in its Root log and
+can be reversed there, which brings the file back with its document. An AI extraction can also be
+deleted in root mode (`DELETE /extractions/:id`). Root mode can't be left while a file has no
+content anywhere; the check names it.
+
 ## Backups
 
 PDFs and scans are in Ledger's Documents, which Ledger backs up with the books. Other inbox files
@@ -274,6 +282,11 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.15.0:** For Ledger 0.20–0.21: clearing accounts are left out of the statement account
+  picker (in the extension too). In Ledger's root mode, deleting a file (or an AI extraction, or
+  something the email check learned) goes through Ledger, so it shows in the Root log and can be
+  put back, file and all; a file with no content left keeps root mode from being left until it's
+  deleted. Unused stored files are now removed after 30 days instead of an hour.
 - **0.14.1:** Fixes. A file whose web address can't be read no longer stops the inbox from
   showing. A picture that is only the start of a PNG is kept as an ordinary file instead of
   staying half-stored (and stopping an email check). Recording a sent file with a wrong kind is

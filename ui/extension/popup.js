@@ -101,7 +101,7 @@ async function checkAutosort() {
 	if (autosort !== null) return autosort;
 	try {
 		const { data } = await send({ type: "accounts" });
-		accounts = data.filter((a) => a.type === "asset" || a.type === "liability");
+		accounts = data.filter((a) => (a.type === "asset" || a.type === "liability") && a.kind !== "clearing"); // never a clearing account
 		autosort = true;
 	} catch (err) {
 		if (err.code === "setup") showSetup();
@@ -124,7 +124,7 @@ async function loadAccounts() {
 			if (err.code !== "no-autosort") throw err;
 			return send({ type: "ledger-accounts" });
 		});
-		accounts = data.filter((a) => a.type === "asset" || a.type === "liability");
+		accounts = data.filter((a) => (a.type === "asset" || a.type === "liability") && a.kind !== "clearing"); // never a clearing account
 		await fillAccounts();
 	} catch (err) {
 		$("account").replaceChildren(new Option(err.code === "setup" ? "Allow access below first" : "Couldn't load accounts", ""));

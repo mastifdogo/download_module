@@ -108,6 +108,14 @@ feature the module uses (the context file says which version added what;
   account lives on its document (read fresh in `GET /files`), and notes
   like `sent_to` carry no codes. The extension's remembered `lastAccount`
   just falls back to "Choose…" when it no longer exists.
+- Import and Ledger 0.20–0.21: clearing accounts (`kind: "clearing"`) never
+  appear in account pickers (`bankAccounts`, the extension's list). In root
+  mode (`inRoot(req)`: `req.user.root` and `ctx.root` present, so older
+  Ledger is unaffected), `DELETE /files/:id`, `/training/:id` and
+  `/extractions/:id` (root only) go through `ctx.root.remove`; a file's
+  extractions first; its document and stored copy stay so a reversal is
+  whole (orphans are swept after 30 days, not an hour). `ctx.root.onCheck`
+  reports files with no content anywhere. `GET /me` gives `root`.
 - Ledger runs in a Debian 13 container with PostgreSQL 18 (0.18.0): the server code spawns no programs
   (the scan bridge runs on the user's own computer, not in Ledger).
 - Bad input answers 4xx (`throw new ctx.HttpError(422, "…")`), never 500.

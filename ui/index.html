@@ -43,6 +43,8 @@
 	.pill.new { background: var(--warn-bg); color: var(--warn); }
 	.pill.sent { background: var(--good-bg); color: var(--good); }
 	.bad { color: var(--bad); }
+	.btn.root { border-color: var(--bad); font-weight: 600; }
+	.root-mark { color: #fff; background: var(--bad); border-radius: 999px; padding: 0 0.5rem; font-size: 12px; font-weight: 700; align-self: center; margin-left: auto; }
 	.review-note { margin-top: 0.3rem; color: var(--warn); }
 	.review-wrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 	table.review th, table.review td { padding: 0.2rem 0.3rem; }
@@ -92,6 +94,7 @@
 </head>
 <body>
 <nav id="tabs" class="tabs" role="tablist">
+	<span id="root-mark" class="root-mark hidden" title="Ledger's root mode is on: deletions go through Ledger and can be put back from its Root log">Root</span>
 	<button class="tab" role="tab" data-tab="inbox" aria-selected="true">Inbox</button>
 	<button class="tab" role="tab" data-tab="scan" aria-selected="false">Scan</button>
 </nav>
@@ -267,7 +270,8 @@
 	/** Ledger's bank and card accounts (asset and liability) for statements, with their tags and sub-accounts. */
 	async function bankAccounts() {
 		if (accounts === null) {
-			try { accounts = (await call("/api/v1/accounts")).data.filter((a) => a.type === "asset" || a.type === "liability"); } catch { accounts = []; }
+			// Not clearing accounts (Ledger 0.20): in-between accounts modules make, never where a statement belongs.
+			try { accounts = (await call("/api/v1/accounts")).data.filter((a) => (a.type === "asset" || a.type === "liability") && a.kind !== "clearing"); } catch { accounts = []; }
 		}
 		return accounts;
 	}
@@ -277,7 +281,7 @@
 	 * then the rest as a tree, sub-accounts indented under their parent (Ledger 0.15+). Older Ledger: one list.
 	 */
 	function accountChoices(list, option) {
-		const tagged = list.filter((a) => a.kind);
+		const tagged = list.filter((a) => KIND_NAME[a.kind]);
 		const byParent = new Map();
 		const codes = new Set(list.map((a) => a.code));
 		for (const a of list) {
@@ -334,7 +338,8 @@
 		$("counts").textContent = `${c.new || 0} in the inbox · ${c.sent || 0} sent · ${c.archived || 0} archived`;
 		$("empty").classList.toggle("hidden", files.length > 0);
 		$("files").classList.toggle("hidden", files.length === 0);
-		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail(), me ? null : api("/me").then((x) => (me = x), () => (me = { role: "viewer" }))]);
+		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail(), api("/me").then((x) => (me = x), () => (me ??= { role: "viewer" }))]);
+		$("root-mark").classList.toggle("hidden", !me?.root);
 		await bankAccounts(); // for statements: sent to a module, or filed in Documents
 		render();
 	}
@@ -428,7 +433,10 @@
 			viewable(f) ? b("Open", () => window.open(f.url, "_blank", "noopener")) : null,
 			b("Download", () => download(f)),
 			f.status === "archived" ? b("Back to inbox", () => patch(f, { status: "new" })) : b("Archive", () => patch(f, { status: "archived" })),
-			b("Delete", () => {
+			me?.root
+				? b("Root: delete", () => confirm(`Root mode: delete ${f.name}? It can be put back from Ledger's Root log.`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail), "btn danger root")
+				: null,
+			me?.root ? null : b("Delete", () => {
 				if (!f.learnable) return confirm(`Delete ${f.name}?`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail);
 				deletingId = deletingId === f.id ? null : f.id;
 				render();
