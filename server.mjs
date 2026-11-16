@@ -21,8 +21,11 @@ const CHUNK_SIZE = 512 * 1024; // bytes; base64 makes it ~700 KB, under Ledger's
 const STALE_UPLOAD_HOURS = 24;
 const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
-	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, (mail_features IS NOT NULL) AS learnable, storage_path, document_id, document_added_here, updated_at`;
-const CLIENT_ORIGINS = ["", "camera", "upload"]; // what the page and the extension may say; email and scanner are set here
+	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, account_code, (mail_features IS NOT NULL) AS learnable, storage_path, document_id, document_added_here, updated_at`;
+const CLIENT_ORIGINS = ["", "camera", "upload", "app"]; // what the page, the extension and the phone app may say; email and scanner are set here
+// The phone app (app/ in this repository), published with each release of the module.
+const APP_REPO = "mastifdogo/download_module";
+const APP_APK = "ledger-import.apk";
 const FILE_KINDS = ["statement", "bill", "receipt", "transaction", "customer", "vendor", "entity"]; // what ctx.files carries (customer, vendor: Ledger >= 0.12.0; entity: 0.16.0)
 const DOCUMENT_KIND_OF = { statement: "statement", bill: "invoice", receipt: "receipt" }; // ctx.files kind → Documents kind
 const ACCOUNT_CODE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
@@ -307,7 +310,7 @@ export default async function register(ctx) {
 		if (!data) return undefined;
 		if (inStorage && !isDocument(data)) return data; // it's where it belongs
 		if (!inStorage && data.length !== Number(f.size_bytes)) throw new Error(`file ${f.id}: ${data.length} bytes in file_chunks, ${f.size_bytes} expected`);
-		const p = await place(f.name, data, { kind: f.origin === "camera" ? "receipt" : "other", note: f.note || "", user });
+		const p = await place(f.name, data, { kind: f.origin === "camera" || f.origin === "app" ? "receipt" : "other", note: f.note || "", user });
 		const { rowCount } = await q(
 			`UPDATE ${T("files")} SET document_id = $2, document_added_here = $3, storage_path = $4 WHERE id = $1 AND document_id IS NULL AND storage_path IS NOT DISTINCT FROM $5`,
 			[f.id, p.document_id, p.document_added_here, p.storage_path, f.storage_path ?? null],
@@ -426,10 +429,16 @@ export default async function register(ctx) {
 		let source = typeof b.source_url === "string" ? b.source_url.trim() : "";
 		if (source && !(/^https?:\/\/\S{1,2000}$/.test(source) && URL.canParse(source))) source = ""; // the page shows its host
 		const origin = b.origin === undefined ? "" : b.origin;
-		if (!CLIENT_ORIGINS.includes(origin)) throw bad('origin must be "camera" or "upload" (or left out)');
+		if (!CLIENT_ORIGINS.includes(origin)) throw bad('origin must be "camera", "upload" or "app" (or left out)');
+		// The phone app sends the note and the account chosen on the phone with the file.
+		const note = b.note === undefined ? "" : b.note;
+		if (typeof note !== "string" || note.length > 1000) throw bad("note must be text of at most 1000 characters");
+		const account = b.account_code === undefined ? "" : b.account_code;
+		if (typeof account !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$|^$/.test(account)) throw bad("account_code must be an account's code");
+		const detail = origin === "app" && typeof b.device === "string" ? b.device.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 200) : "";
 		const { rows } = await q(
-			`INSERT INTO ${T("files")} (name, content_type, size_bytes, source_url, received_by, origin) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-			[name, type, size, source, req.user.username, origin],
+			`INSERT INTO ${T("files")} (name, content_type, size_bytes, source_url, received_by, origin, note, account_code, origin_detail) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+			[name, type, size, source, req.user.username, origin, note, account, detail],
 		);
 		return ctx.response(201, { id: rows[0].id, chunk_size: CHUNK_SIZE, chunks: Math.ceil(size / CHUNK_SIZE) });
 	});
@@ -915,6 +924,13 @@ export default async function register(ctx) {
 			: await q(`DELETE FROM ${T("mail_training")}`);
 		return { forgotten: rowCount };
 	});
+
+	// GET /app: the phone app for this version of the module, for the Scan tab and for the app itself.
+	ctx.route("GET", "/app", async () => ({
+		version: ctx.version,
+		apk_url: `https://github.com/${APP_REPO}/releases/latest/download/${APP_APK}`,
+		releases_url: `https://github.com/${APP_REPO}/releases/latest`,
+	}));
 
 	// GET /me: who's asking and which Ledger, for the page (e.g. "+ New account…" needs Ledger 0.11.3).
 	ctx.route("GET", "/me", async (req) => ({ username: req.user.username, role: req.user.role, root: inRoot(req), ledger: ctx.ledgerVersion, version: ctx.version }));

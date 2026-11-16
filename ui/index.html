@@ -100,6 +100,18 @@
 </nav>
 
 <section id="tab-scan" class="hidden" role="tabpanel">
+	<details id="phone-app" class="small" style="margin-bottom:0.75rem">
+		<summary>Scan receipts with the Android app</summary>
+		<div class="panel" style="margin-top:0.4rem">
+			<p style="margin-top:0">The <strong>Ledger Import</strong> app finds the receipt in the camera by itself, turns it into a PDF, lets you pick the account and add a note (typed or spoken), and sends it to this inbox. With no connection it keeps receipts on the phone and sends them when it next reaches the server. It updates itself.</p>
+			<div class="actions"><a class="btn primary" id="app-apk" href="#" rel="noopener">Download the app (Android)</a></div>
+			<ol style="margin-bottom:0">
+				<li>Open this page on the phone and download the app, or send the link to the phone. Android asks once to allow installing from your browser.</li>
+				<li>In the app, enter this server's address (the one in the browser's address bar, e.g. <code id="app-server"></code>), your Ledger username and password.</li>
+				<li>Receipts arrive in the Inbox marked "phone app", with the account you chose.</li>
+			</ol>
+		</div>
+	</details>
 	<h2 style="margin-top:0">Scanner</h2>
 	<div id="scanner" class="panel small"><span class="muted">Looking for the scanner…</span></div>
 	<details id="bridge" class="small" style="margin-top:0.5rem">
@@ -351,6 +363,7 @@
 					el("td", { class: "wide" },
 						el("div", { class: "name" }, f.name),
 						f.note ? el("div", { class: "muted small" }, f.note) : null,
+						f.account_code ? el("div", { class: "muted small" }, "Account chosen on the phone: ", el("strong", {}, f.account_code)) : null,
 						f.document && !f.missing ? el("div", { class: "muted small" }, `In Ledger's Documents${f.document.kind !== "other" ? ` as ${f.document.kind === "invoice" ? "an invoice" : `a ${f.document.kind}`}` : ""}${f.document.account_code ? ` for ${f.document.account_code}${f.document.account_name ? ` · ${f.document.account_name}` : ""}` : ""}${f.document.reconciled ? ", reconciled" : ""}`) : null,
 						f.status === "sent" ? el("div", { class: "small" }, "Sent to ", f.sent_link ? el("a", { href: "#", onclick: (e) => { e.preventDefault(); goLedger(f.sent_link); } }, f.sent_to) : f.sent_to, f.sent_by ? ` by ${f.sent_by}` : "") : null,
 						f.handoff ? el("div", { class: `small ${f.handoff.status === "rejected" ? "bad" : "muted"}` }, HANDOFF[f.handoff.status] || f.handoff.status, f.handoff.result ? `: ${f.handoff.result}` : "") : null,
@@ -375,7 +388,7 @@
 			try { host = new URL(f.source_url).host; } catch {} // not an address after all: shown as it is
 			return el("span", { title: f.source_url }, host);
 		}
-		const what = { email: "email", scanner: "scanner", camera: "phone camera", upload: "uploaded" }[f.origin];
+		const what = { email: "email", scanner: "scanner", camera: "phone camera", upload: "uploaded", app: "phone app" }[f.origin];
 		if (!what) return el("span", { class: "muted" }, "dropped file");
 		return el("span", { title: f.origin_detail || what }, what, f.origin_detail ? el("div", { class: "muted" }, f.origin_detail) : null);
 	}
@@ -935,6 +948,8 @@
 	}
 	$("scan-camera").onchange = (e) => addPhotos(e.target);
 	$("scan-pick").onchange = (e) => addPhotos(e.target);
+	api("/app").then((a) => { $("app-apk").href = a.apk_url; }).catch(() => {});
+	try { $("app-server").textContent = (window.top.location || location).origin; } catch { $("app-server").textContent = location.origin; }
 	$("scan-clear").onclick = () => { pages.forEach((p) => URL.revokeObjectURL(p.url)); pages = []; $("scan-name").value = ""; $("scan-note").value = ""; drawPages(); };
 	$("scan-upload").onclick = async () => {
 		const btn = $("scan-upload");

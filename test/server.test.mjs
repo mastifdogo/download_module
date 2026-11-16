@@ -84,3 +84,17 @@ test("a complete upload: PDFs and real PNG or JPEG pictures go to Documents, a c
 	assert.deepEqual([cut.documents.length, cut.stored.length], [0, 1]);
 	assert.match(cut.stored[0].path, /^inbox\/[0-9a-f]{12}\/broken\.png$/);
 });
+
+test("POST /files: the phone app sends the note, the account and the phone's name with the receipt", async () => {
+	const L = await fakeLedger();
+	let r = await L.call("POST /files", { body: { name: "receipt.pdf", size: 10, origin: "app", note: "lunch with a client", account_code: "6100", device: "Pixel 8\n" } });
+	assert.equal(r.status, 201);
+	const p = L.sql.find((s) => /^INSERT INTO mod_downloads\.files/.test(s.text)).params;
+	assert.deepEqual(p.slice(5), ["app", "lunch with a client", "6100", "Pixel 8"]);
+	// A wrong account code, or a note that is too long, is refused.
+	for (const body of [{ account_code: "61 00" }, { account_code: 6100 }, { note: "x".repeat(1001) }, { origin: "phone" }]) {
+		await assert.rejects(L.call("POST /files", { body: { name: "r.pdf", size: 10, origin: "app", ...body } }), JSON.stringify(body));
+	}
+	r = await L.call("GET /app");
+	assert.match(r.apk_url, /^https:\/\/github\.com\/mastifdogo\/download_module\/releases\/latest\/download\/ledger-import\.apk$/);
+});

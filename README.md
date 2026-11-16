@@ -174,6 +174,40 @@ Ledger machine itself).
 - A scan runs on the server in the background (a feeder of pages takes a while) and becomes a PDF
   with one page per sheet; it must fit the *Largest file accepted* setting.
 
+### The phone app (Android)
+
+**Ledger Import** is a small Android app for receipts, in `android/` of this
+repository. Each release of the module carries it as `ledger-import.apk`;
+the Scan tab has the download link.
+
+- **Scan:** the camera finds the receipt's edges by itself, takes the
+  picture, straightens it and makes a PDF (several pages if you like). This
+  is Google's document scanner, so the phone needs Google Play services.
+- **Account and note:** choose the account the receipt belongs under (the
+  list comes from Ledger and is kept on the phone) and add a note, typed or
+  spoken. Speech is turned into text by the phone's own speech-to-text;
+  nothing is sent to an AI service.
+- **Sending:** the receipt goes to this inbox, marked "phone app", with the
+  account and the note. With no connection, or away from the server, it
+  stays on the phone and is sent by itself when the server can next be
+  reached (or with **Send now**; sending by itself can be turned off).
+- **Setting up:** the server's address, your Ledger username and password.
+  The password is kept encrypted on the phone and used to log in again when
+  the session runs out. The app needs to reach the server: the same network,
+  or a VPN such as Tailscale.
+- **Updates:** the app checks this repository's releases once a day and
+  when opened, and installs a newer version. Android asks once to allow
+  it; from Android 12 later updates install without asking.
+
+**Signing key.** Android only installs an update signed with the same key
+as the app it replaces, so releases are signed with one key kept in this
+repository's secrets (Settings → Secrets and variables → Actions):
+`APP_KEYSTORE_BASE64` (the keystore file, base64) and
+`APP_KEYSTORE_PASSWORD`. Keep a copy of the keystore and its password
+somewhere safe: if they are lost, phones must uninstall the app and install
+it again. Without the secrets a release is published without the app; add
+them and run the Release workflow by hand to attach it.
+
 ## How files get here
 
 The extension uploads from a Ledger tab with your login (Ledger only accepts its own pages), in
@@ -282,6 +316,11 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.16.0:** A phone app (Android) for receipts: the camera finds the receipt and makes a PDF,
+  you pick the account and add a typed or spoken note, and it is sent to the inbox, or kept on
+  the phone and sent when the server can next be reached. It updates itself from this
+  repository's releases, which now carry it signed. Receipts from it show the account chosen
+  on the phone.
 - **0.15.0:** For Ledger 0.20–0.21: clearing accounts are left out of the statement account
   picker (in the extension too). In Ledger's root mode, deleting a file (or an AI extraction, or
   something the email check learned) goes through Ledger, so it shows in the Root log and can be
