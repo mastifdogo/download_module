@@ -11,8 +11,8 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /**
- * What the app remembers: the server, who logs in, the session cookie and the
- * list of accounts. The password is kept encrypted with a key that never
+ * What the app remembers: the server, who logs in, the session cookie, the
+ * organization receipts go to, the home Wi-Fi and the lists of accounts. The password is kept encrypted with a key that never
  * leaves the phone's keystore.
  */
 class Prefs(context: Context) {
@@ -30,10 +30,33 @@ class Prefs(context: Context) {
         get() = p.getString("cookie", "") ?: ""
         set(v) = p.edit().putString("cookie", v).apply()
 
-    /** The accounts as Ledger last listed them (JSON array), for choosing one with no connection. */
-    var accountsJson: String
-        get() = p.getString("accounts", "[]") ?: "[]"
-        set(v) = p.edit().putString("accounts", v).apply()
+    /** The organization receipts are sent to unless another is chosen for one (0: not chosen yet). */
+    var orgId: Long
+        get() = p.getLong("org_id", 0)
+        set(v) = p.edit().putLong("org_id", v).apply()
+
+    /** The organization the session cookie is in now (0: not known). */
+    var sessionOrg: Long
+        get() = p.getLong("session_org", 0)
+        set(v) = p.edit().putLong("session_org", v).apply()
+
+    /** The organizations this login can use, as Ledger last listed them (JSON array). */
+    var orgsJson: String
+        get() = p.getString("orgs", "[]") ?: "[]"
+        set(v) = p.edit().putString("orgs", v).apply()
+
+    /** An organization's accounts as Ledger last listed them (JSON array), for choosing one with no connection. */
+    fun accountsJson(org: Long): String = p.getString("accounts_$org", null) ?: (if (org == orgId) p.getString("accounts", null) else null) ?: "[]"
+
+    fun setAccountsJson(org: Long, v: String) = p.edit().putString("accounts_$org", v).apply()
+
+    /**
+     * The name of the Wi-Fi the server is on. When set, receipts are sent by
+     * themselves only on that Wi-Fi; empty: on any connection.
+     */
+    var homeWifi: String
+        get() = p.getString("home_wifi", "") ?: ""
+        set(v) = p.edit().putString("home_wifi", v.trim()).apply()
 
     var lastAccount: String
         get() = p.getString("last_account", "") ?: ""

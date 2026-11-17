@@ -8,6 +8,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
@@ -16,6 +17,11 @@ import java.util.concurrent.TimeUnit
 /** Sending what waits in the queue, by hand or by itself when the phone is connected. */
 object Sender {
     private val lock = Any()
+
+    /** The receipt being uploaded at this moment ("" for none): it can't be changed or deleted meanwhile. */
+    @Volatile
+    var sending = ""
+        private set
 
     /**
      * Sends every waiting receipt, oldest first. Returns how many were sent
@@ -29,7 +35,13 @@ object Sender {
         val client = LedgerClient(prefs)
         var sent = 0
         var problem = ""
-        for (item in queue.pending()) {
+        for (waiting in queue.pending()) {
+            // As it is now: it may have been changed or deleted since the list was read.
+            val item = synchronized(Queue.LOCK) {
+                val now = queue.get(waiting.id)?.takeIf { !it.sent && queue.pdf(it.id).exists() }
+                sending = now?.id ?: ""
+                now
+            } ?: continue
             try {
                 client.upload(item, queue.pdf(item.id))
                 queue.markSent(item)
@@ -41,6 +53,8 @@ object Sender {
             } catch (e: Exception) {
                 problem = "Can't reach the server (${e.message ?: e.javaClass.simpleName})"
                 break
+            } finally {
+                sending = ""
             }
         }
         sent to problem
@@ -52,6 +66,7 @@ object Sender {
         if (!Prefs(context).autoSend) {
             wm.cancelUniqueWork(NOW)
             wm.cancelUniqueWork(REGULAR)
+            wm.cancelAllWorkByTag(ON_WIFI)
             return
         }
         val online = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
@@ -65,14 +80,35 @@ object Sender {
         )
     }
 
+    /**
+     * With a home Wi-Fi set and receipts waiting: looks again a few minutes
+     * after the phone is next on Wi-Fi, so they go soon after coming home.
+     * Android holds this back while the phone is on mobile data only.
+     */
+    fun waitForWifi(context: Context): Unit = synchronized(lock) {
+        val wm = WorkManager.getInstance(context)
+        val waiting = try {
+            wm.getWorkInfosByTag(ON_WIFI).get().any { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+        } catch (e: Exception) {
+            false
+        }
+        if (waiting) return
+        val wifi = Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build()
+        wm.enqueue(OneTimeWorkRequestBuilder<SendWorker>().setConstraints(wifi).setInitialDelay(5, TimeUnit.MINUTES).addTag(ON_WIFI).build())
+        Unit
+    }
+
     private const val NOW = "send-now"
     private const val REGULAR = "send-regularly"
+    private const val ON_WIFI = "send-on-wifi"
 }
 
 class SendWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
+        val prefs = Prefs(applicationContext)
         val queue = Queue(applicationContext)
-        if (Prefs(applicationContext).autoSend && queue.pending().isNotEmpty()) {
+        // With a home Wi-Fi set, only on that Wi-Fi ("Send now" sends anywhere).
+        if (prefs.autoSend && queue.pending().isNotEmpty() && Wifi.homeNow(applicationContext, prefs.homeWifi)) {
             Sender.sendAll(applicationContext)
         }
         // Once a day, see whether there is a newer app.
@@ -81,7 +117,12 @@ class SendWorker(context: Context, params: WorkerParameters) : Worker(context, p
         } catch (e: Exception) {
             // next time
         }
+        if (!prefs.autoSend || queue.pending().isEmpty()) return Result.success()
+        if (prefs.homeWifi.isNotEmpty()) {
+            Sender.waitForWifi(applicationContext)
+            return Result.success()
+        }
         // The phone is on a network but the server wasn't reached (away from home): try again later.
-        return if (Prefs(applicationContext).autoSend && queue.pending().isNotEmpty() && runAttemptCount < 8) Result.retry() else Result.success()
+        return if (runAttemptCount < 8) Result.retry() else Result.success()
     }
 }

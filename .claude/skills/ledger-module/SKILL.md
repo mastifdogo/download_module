@@ -308,6 +308,18 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   fit the file (`misfit`) falls back to the Import inbox; other failures
   keep `pending` so Send can be pressed again. The popup shows the form at
   once while a file downloads (`waiting`).
+- **Phone app** (`android/`, Kotlin, no server code of its own): logs in
+  with a username and password, keeps Ledger's session cookie, and uses the
+  same chunked upload routes with `origin: "app"`. Every POST/PUT must send
+  a JSON body (`{}` when empty): Android otherwise marks it as a web form
+  and Ledger answers 415. `LedgerClient.call(…, org)` puts the session in
+  the receipt's organization first (`POST /auth/organization`; a new login
+  starts in the user's usual one). `Queue` is files in the app's storage
+  (all access under `Queue.LOCK`; `Sender.sending` can't be changed or
+  deleted). `Wifi.homeNow` gates sending by itself when a home Wi-Fi is set
+  (the name needs the location permission; unknown name on Wi-Fi: try).
+  Build: `ANDROID_HOME=… gradle -p android assembleDebug` (SDK platform 35);
+  `app.yml` builds it on every push, `release.yml` signs and attaches it.
 - Checks: Ledger's checker (`scripts/check.sh`) and
   `npx web-ext lint --source-dir ui/extension` (0 errors expected; the
   `background.service_worker` warning is expected for Firefox).

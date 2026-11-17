@@ -16,6 +16,31 @@
             android:layout_height="wrap_content"
             android:textAppearance="?attr/textAppearanceTitleMedium" />
 
+        <ImageView
+            android:id="@+id/preview"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:adjustViewBounds="true"
+            android:contentDescription="The first page of the receipt"
+            android:maxHeight="300dp"
+            android:scaleType="fitCenter"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/org_label"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Organization"
+            android:visibility="gone" />
+
+        <Spinner
+            android:id="@+id/org"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:visibility="gone" />
+
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

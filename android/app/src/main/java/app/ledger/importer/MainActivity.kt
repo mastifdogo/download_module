@@ -64,7 +64,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<MaterialButton>(R.id.scan).setOnClickListener { scan() }
         findViewById<MaterialButton>(R.id.settings).setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
         send.setOnClickListener { sendNow() }
-        list.setOnItemClickListener { _, _, position, _ -> describe(items[position]) }
+        // A waiting receipt opens to be changed; a sent one only says what it was.
+        list.setOnItemClickListener { _, _, position, _ ->
+            val item = items[position]
+            if (item.sent || !queue.pdf(item.id).exists()) describe(item)
+            else startActivity(Intent(this, ReceiptActivity::class.java).putExtra(ReceiptActivity.ITEM, item.id))
+        }
 
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -77,10 +82,12 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refresh()
         Sender.schedule(this)
-        // The list of accounts, fresh for the next receipt, whenever the server can be reached.
+        // The organizations and the list of accounts, fresh for the next receipt, whenever the server can be reached.
         if (prefs.configured) thread {
             try {
-                LedgerClient(prefs).refreshAccounts()
+                val client = LedgerClient(prefs)
+                client.whoAmI()
+                client.refreshAccounts()
             } catch (e: Exception) {
                 // not connected: the saved list is used
             }
@@ -102,10 +109,17 @@ class MainActivity : AppCompatActivity() {
     private fun refresh() {
         items = queue.all()
         val waiting = items.count { !it.sent }
+        val orgs = LedgerClient.orgs(prefs)
+        val severalOrgs = orgs.size > 1
+        val who = "${prefs.username} at ${prefs.server}" + (orgs.firstOrNull { it.id == prefs.orgId }?.takeIf { severalOrgs }?.let { ", for ${it.name}" } ?: "")
         status.text = when {
             !prefs.configured -> "Not set up yet: open Settings and enter your Ledger server."
-            waiting == 0 -> "${prefs.username} at ${prefs.server}\nEverything has been sent."
-            else -> "${prefs.username} at ${prefs.server}\n$waiting receipt${if (waiting == 1) "" else "s"} waiting on this phone" + if (prefs.autoSend) "; sent by itself when the server can be reached." else "."
+            waiting == 0 -> "$who\nEverything has been sent."
+            else -> "$who\n$waiting receipt${if (waiting == 1) "" else "s"} waiting on this phone" + when {
+                !prefs.autoSend -> ". Tap one to change it."
+                prefs.homeWifi.isNotEmpty() -> "; sent by itself on the Wi-Fi \"${prefs.homeWifi}\". Tap one to change it."
+                else -> "; sent by itself when the server can be reached. Tap one to change it."
+            }
         }
         send.isEnabled = waiting > 0 && !sending
         send.text = if (sending) "Sending…" else if (waiting > 0) "Send now ($waiting)" else "Send now"
@@ -118,6 +132,7 @@ class MainActivity : AppCompatActivity() {
                 val whenText = DateUtils.getRelativeTimeSpanString(if (item.sent) item.sentAt else item.createdAt)
                 v.findViewById<TextView>(android.R.id.text2).text = listOf(
                     if (item.sent) "Sent $whenText" else "Waiting since $whenText",
+                    item.orgName.takeIf { severalOrgs && it.isNotEmpty() },
                     item.accountCode.takeIf { it.isNotEmpty() }?.let { "$it ${item.accountName}" },
                     item.note.takeIf { it.isNotEmpty() },
                     item.error.takeIf { it.isNotEmpty() }?.let { "Not sent: $it" },
@@ -131,13 +146,14 @@ class MainActivity : AppCompatActivity() {
         val b = AlertDialog.Builder(this).setTitle(item.name).setMessage(
             listOf(
                 if (item.sent) "Sent to Ledger." else "Waiting on this phone.",
+                item.orgName.takeIf { it.isNotEmpty() }?.let { "Organization: $it" },
                 if (item.accountCode.isEmpty()) "No account chosen." else "Account: ${item.accountCode} ${item.accountName}",
                 item.note.takeIf { it.isNotEmpty() }?.let { "Note: $it" },
                 item.error.takeIf { it.isNotEmpty() }?.let { "Last try: $it" },
             ).filterNotNull().joinToString("\n\n"),
         ).setPositiveButton("Close", null)
         b.setNegativeButton(if (item.sent) "Remove from list" else "Delete (not sent)") { _, _ ->
-            queue.remove(item.id)
+            if (!queue.remove(item.id)) toast("This receipt is being sent right now.")
             refresh()
         }
         b.show()

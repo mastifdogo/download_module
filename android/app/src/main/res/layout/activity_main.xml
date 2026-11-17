@@ -56,7 +56,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="24dp"
-        android:text="No receipts yet. Scan one: it is kept on this phone until the server has it."
+        android:text="No receipts yet. Scan one: it is kept on this phone until the server has it. Tap a waiting receipt to change it."
         android:textAppearance="?attr/textAppearanceBodyMedium" />
 
     <ListView

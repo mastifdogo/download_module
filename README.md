@@ -187,10 +187,27 @@ the Scan tab has the download link.
   list comes from Ledger and is kept on the phone) and add a note, typed or
   spoken. Speech is turned into text by the phone's own speech-to-text;
   nothing is sent to an AI service.
+- **Organization:** with more than one organization on the server, Settings
+  has *Send receipts to this organization*: the one receipts go to unless
+  you choose another for a receipt. Each organization has its own accounts
+  and its own inbox.
 - **Sending:** the receipt goes to this inbox, marked "phone app", with the
   account and the note. With no connection, or away from the server, it
   stays on the phone and is sent by itself when the server can next be
   reached (or with **Send now**; sending by itself can be turned off).
+- **Only on your Wi-Fi:** under Settings, *Only on this Wi-Fi* takes the name
+  of the Wi-Fi your server is on (*Use the Wi-Fi this phone is on* fills it
+  in). Receipts are then sent by themselves only while the phone is on that
+  Wi-Fi, a few minutes after it joins at the latest; **Send now** still
+  sends from anywhere. Android gives a Wi-Fi's name only to apps with the
+  location permission and with Location turned on, and while the app is
+  closed only when location is allowed "all the time" (the app offers
+  both; it never reads where the phone is). When Android won't give the
+  name, the app tries on whatever Wi-Fi the phone is on, never on mobile
+  data.
+- **Changing a receipt:** tap a receipt that still waits on the phone to
+  change its account, note, name or organization, or to delete it. Once
+  sent, change it in Ledger.
 - **Setting up:** the server's address, your Ledger username and password.
   The password is kept encrypted on the phone and used to log in again when
   the session runs out. The app needs to reach the server: the same network,
@@ -316,6 +333,11 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.17.0:** Phone app: receipts are sent again (0.16.0 finished every upload with a request
+  Ledger refuses, "Content-Type must be application/json", so nothing arrived). New: an
+  organization receipts go to (Settings; another can be chosen per receipt), sending by itself
+  only on the Wi-Fi your server is on, and changing or deleting a receipt that still waits on
+  the phone (tap it), with a picture of its first page.
 - **0.16.0:** A phone app (Android) for receipts: the camera finds the receipt and makes a PDF,
   you pick the account and add a typed or spoken note, and it is sent to the inbox, or kept on
   the phone and sent when the server can next be reached. It updates itself from this
