@@ -100,7 +100,8 @@ function base64Of(bytes) {
 async function checkAutosort() {
 	if (autosort !== null) return autosort;
 	try {
-		const { data } = await send({ type: "accounts" });
+		await loadOrgs(); // the accounts of the organization the file goes to
+		const { data } = await send({ type: "accounts", org: chosenOrg() });
 		accounts = data.filter((a) => (a.type === "asset" || a.type === "liability") && a.kind !== "clearing"); // never a clearing account
 		autosort = true;
 	} catch (err) {
@@ -116,13 +117,42 @@ async function checkAutosort() {
 	return autosort;
 }
 
+// The organization the file goes to: shown when this login can use more than one. It starts at the one
+// chosen in the extension's options and can be changed for this file.
+let orgsLoaded = false;
+let orgsLoading = null;
+const chosenOrg = () => Number($("org").value) || 0;
+const loadOrgs = () => (orgsLoading ??= fetchOrgs());
+async function fetchOrgs() {
+	try {
+		const { current, list, saved } = await send({ type: "orgs" });
+		orgsLoaded = true;
+		if (list.length < 2) return;
+		$("org").replaceChildren(
+			new Option(`Where Ledger is now${current ? ` (${current.name})` : ""}`, "0"),
+			...list.map((o) => Object.assign(new Option(o.role === "viewer" ? `${o.name} (view only)` : o.name, String(o.id)), { disabled: o.role === "viewer" })),
+		);
+		$("org").value = list.some((o) => o.id === saved && o.role !== "viewer") ? String(saved) : "0";
+		$("org-row").classList.remove("hidden");
+	} catch {
+		// not set up or not logged in yet: the rest of the window says so; try again next time
+		orgsLoading = null;
+	}
+}
+$("org").onchange = () => {
+	// Another organization has other accounts.
+	accounts = [];
+	if (!$("statement-opts").classList.contains("hidden")) loadAccounts();
+};
+
 async function loadAccounts() {
 	if (accounts.length) return fillAccounts();
 	try {
 		// Auto sort's list when it's installed, else Ledger's own accounts.
-		const { data } = await send({ type: autosort === false ? "ledger-accounts" : "accounts" }).catch((err) => {
+		const org = chosenOrg();
+		const { data } = await send({ type: autosort === false ? "ledger-accounts" : "accounts", org }).catch((err) => {
 			if (err.code !== "no-autosort") throw err;
-			return send({ type: "ledger-accounts" });
+			return send({ type: "ledger-accounts", org });
 		});
 		accounts = data.filter((a) => (a.type === "asset" || a.type === "liability") && a.kind !== "clearing"); // never a clearing account
 		await fillAccounts();
@@ -171,6 +201,7 @@ async function showForm(f, unknown = false) {
 	if ($("dest").selectedOptions[0]?.disabled || $("dest").selectedIndex < 0) $("dest").value = "inbox";
 	$("dest").onchange();
 	checkAutosort();
+	loadOrgs();
 }
 
 async function pick(f) {
@@ -231,7 +262,7 @@ $("form").onsubmit = async (e) => {
 	if (!file && !waiting) return;
 	const dest = $("dest").value;
 	if (dest.endsWith("statement") && !$("account").value) return show("Choose the bank or card account the statement is for.", "err");
-	const job = { dest, account: dest.endsWith("statement") ? $("account").value : "", flip: $("flip").checked, dateOrder: $("date-order").value };
+	const job = { dest, account: dest.endsWith("statement") ? $("account").value : "", flip: $("flip").checked, dateOrder: $("date-order").value, ...(orgsLoaded ? { org: chosenOrg() } : {}) };
 	$("send").disabled = true;
 	sending = true;
 	// The extension does the sending, not this window: it can be closed, and a notification says how it went.

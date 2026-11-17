@@ -31,6 +31,13 @@ straight to your Ledger server, without saving them to your computer first. Work
   - **Ledger's CSV files** for journal import.
 
   It remembers where you last sent each kind of file.
+- **Organization:** with more than one organization in Ledger, choose where files go in the
+  extension's options (**Send files to**); the send window can pick another for one file.
+  "Where Ledger is now" follows the organization you last chose in Ledger. Ledger keeps the
+  organization on your login, not per request, so to send elsewhere the extension switches
+  Ledger to that organization for the few seconds of sending and then back (also when sending
+  fails). Ledger pages you have open are in that organization for those seconds. Organizations
+  you can only view can't be chosen.
 
 ## Install
 

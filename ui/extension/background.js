@@ -351,6 +351,52 @@ async function announce(result) {
 	}
 }
 
+// --- The organization files go to --------------------------------------------
+// Ledger keeps the organization on the login session, which this browser's Ledger tabs share; it has no
+// way to say it per request. So to send to another organization than the one Ledger is in, the session
+// is switched to it for the few seconds the sending takes, then switched back (also when sending fails).
+// One switch at a time: everything that runs in another organization goes through this queue.
+let orgQueue = Promise.resolve();
+
+/** The organization chosen in the extension's options (0: whichever Ledger is in at the time). */
+async function savedOrg() {
+	const { orgId = 0 } = await chrome.storage.local.get("orgId");
+	return Number(orgId) || 0;
+}
+
+/** The organizations this Ledger login can use, and the one it is in now. */
+async function organizations() {
+	const me = await ledger({ method: "GET", path: "/api/v1/auth/me" });
+	const list = (me.organizations ?? []).filter((o) => !o.status || o.status === "ready").map((o) => ({ id: o.id, name: o.name, role: o.role }));
+	return { current: me.organization ? { id: me.organization.id, name: me.organization.name } : null, list };
+}
+
+const switchTo = (id) => ledger({ method: "POST", path: "/api/v1/auth/organization", json: { organization_id: id } });
+
+/** Runs fn with the session in organization orgId (0: as it is), and puts it back afterwards. → { value, org } */
+function inOrganization(orgId, fn) {
+	if (!orgId) return fn().then((value) => ({ value, org: null }));
+	const run = async () => {
+		const { current, list } = await organizations();
+		const target = list.find((o) => o.id === orgId);
+		if (!target) throw new Error("This Ledger login can't use the organization chosen in the extension's options any more. Choose another there.");
+		if (target.role === "viewer") throw new Error(`You can only view ${target.name} in Ledger, so files can't be sent there. Choose another organization.`);
+		if (!current || current.id === orgId) return { value: await fn(), org: target };
+		await switchTo(orgId);
+		try {
+			return { value: await fn(), org: target };
+		} finally {
+			// Back where Ledger was, also when sending failed; a second try before saying so.
+			await switchTo(current.id).catch(() => switchTo(current.id)).catch(() =>
+				announce({ ok: false, name: "Ledger's organization", text: `Ledger was left in ${target.name}. Switch back to ${current.name} in Ledger.` }),
+			);
+		}
+	};
+	const next = orgQueue.then(run, run);
+	orgQueue = next.catch(() => {});
+	return next;
+}
+
 let jobs = 0;
 /** One Send: waits for the file if it's still downloading, delivers it, and announces the outcome. → the result */
 async function runJob(job, given) {
@@ -363,15 +409,18 @@ async function runJob(job, given) {
 		if (!file) throw new Error("Nothing is waiting to be sent. Right-click the link and choose Send to Ledger… again.");
 		if (file.error) throw new Error(file.error);
 		name = file.name;
-		let out;
-		try {
-			out = await deliver(file, job);
-		} catch (err) {
-			if (!err.misfit) throw err;
-			// Chosen before the file was known, or it doesn't fit: nobody may be there to choose again, so keep it safe in the inbox.
-			const r = await uploadToInbox(file);
-			out = { text: `${err.message} It's in the Import inbox instead, where you can send it on.`, path: `/apps/${INBOX}?file=${r.id}`, linkText: "Open it in Ledger", fallback: true };
-		}
+		const orgId = job.org === undefined ? await savedOrg() : Number(job.org) || 0;
+		const { value: out, org } = await inOrganization(orgId, async () => {
+			try {
+				return await deliver(file, job);
+			} catch (err) {
+				if (!err.misfit) throw err;
+				// Chosen before the file was known, or it doesn't fit: nobody may be there to choose again, so keep it safe in the inbox.
+				const r = await uploadToInbox(file);
+				return { text: `${err.message} It's in the Import inbox instead, where you can send it on.`, path: `/apps/${INBOX}?file=${r.id}`, linkText: "Open it in Ledger", fallback: true };
+			}
+		});
+		if (org) out.text = `${out.text.replace(/\.$/, "")} (${org.name}).`;
 		if (p && pending === p) pending = null;
 		if (job.account) await chrome.storage.local.set({ lastAccount: job.account });
 		if (!out.fallback) {
@@ -431,10 +480,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
 				chrome.action?.setBadgeText({ text: "" });
 				return lastResult;
 			}
+			case "orgs":
+				return { ...(await organizations()), saved: await savedOrg() };
+			// Accounts of the organization the file will go to.
 			case "accounts":
-				return ledger({ method: "GET", path: `/api/v1/m/${AUTOSORT}/accounts` });
+				return (await inOrganization(Number(msg.org) || 0, () => ledger({ method: "GET", path: `/api/v1/m/${AUTOSORT}/accounts` }))).value;
 			case "ledger-accounts":
-				return ledger({ method: "GET", path: "/api/v1/accounts" });
+				return (await inOrganization(Number(msg.org) || 0, () => ledger({ method: "GET", path: "/api/v1/accounts" }))).value;
 			case "tab-file": {
 				const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
 				if (!tab?.id) throw new Error("No tab to read.");

@@ -26,6 +26,27 @@ $("form").onsubmit = async (e) => {
 	await chrome.storage.local.set({ ledgerUrl: url });
 	$("url").value = url;
 	say("Saved.", "ok");
+	loadOrgs();
+};
+
+// The organization files go to (with more than one).
+async function loadOrgs() {
+	const r = await chrome.runtime.sendMessage({ type: "orgs" });
+	if (!r?.ok) return;
+	const { current, list, saved } = r.data;
+	if (list.length < 2) return $("org-form").classList.add("hidden");
+	$("org").replaceChildren(
+		new Option(`Where Ledger is now${current ? ` (now ${current.name})` : ""}`, "0"),
+		...list.map((o) => Object.assign(new Option(o.role === "viewer" ? `${o.name} (view only)` : o.name, String(o.id)), { disabled: o.role === "viewer" })),
+	);
+	$("org").value = list.some((o) => o.id === saved && o.role !== "viewer") ? String(saved) : "0";
+	$("org-form").classList.remove("hidden");
+}
+$("org").onchange = async () => {
+	const id = Number($("org").value) || 0;
+	await chrome.storage.local.set({ orgId: id, orgName: id ? $("org").selectedOptions[0].textContent : "" });
+	$("org-msg").className = "small ok";
+	$("org-msg").textContent = id ? `Files go to ${$("org").selectedOptions[0].textContent}.` : "Files go where Ledger is at the time.";
 };
 
 $("test").onclick = async () => {
@@ -39,4 +60,5 @@ chrome.storage.local.get("ledgerUrl").then(async ({ ledgerUrl }) => {
 	// A copy downloaded from Ledger's Import page comes with that Ledger's address: press Save to allow it.
 	if (!ledgerUrl) ledgerUrl = await fetch(chrome.runtime.getURL("defaults.json")).then((r) => r.json()).then((d) => d.ledgerUrl || "", () => "");
 	if (ledgerUrl) $("url").value = ledgerUrl;
+	if (ledgerUrl) loadOrgs();
 });

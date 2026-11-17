@@ -84,7 +84,8 @@ Auto sort is optional: without it, the inbox still works, and so do downloading 
 files.
 
 **Organizations:** each organization in Ledger has its own Import inbox. The extension sends to
-the organization you're working in in Ledger at that moment.
+the organization you're working in in Ledger at that moment, unless its options choose another
+one (**Send files to**; the send window can also pick one per file).
 
 **Extract data** needs an AI provider: an admin chooses one under **Settings → LLM API** and ticks
 **Import** there. Without it the option is hidden and the Send panel says what to set up.
@@ -333,6 +334,12 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.18.0:** Browser extension 0.5.0: a setting for the organization files are sent to
+  (extension options, "Send files to"), and an Organization choice in the send window to send
+  one file elsewhere. Ledger keeps the organization on the login, so the extension switches
+  Ledger to the chosen one for the few seconds of sending and back again, also when sending
+  fails; statement accounts are listed from the chosen organization. Reinstall the extension
+  (unzip over the same folder and press Reload) to get it.
 - **0.17.0:** Phone app: receipts are sent again (0.16.0 finished every upload with a request
   Ledger refuses, "Content-Type must be application/json", so nothing arrived). New: an
   organization receipts go to (Settings; another can be chosen per receipt), sending by itself

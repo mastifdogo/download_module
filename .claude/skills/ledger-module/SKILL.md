@@ -320,6 +320,13 @@ that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
   (the name needs the location permission; unknown name on Wi-Fi: try).
   Build: `ANDROID_HOME=… gradle -p android assembleDebug` (SDK platform 35);
   `app.yml` builds it on every push, `release.yml` signs and attaches it.
+- Organization (extension 0.5.0): Ledger has no per-request organization, only
+  the session's (`POST /api/v1/auth/organization`). `inOrganization(orgId, fn)`
+  in background.js switches to the chosen one (options: `orgId` in storage;
+  the popup's `#org` sends `job.org`), runs fn, and switches back in `finally`,
+  one at a time (`orgQueue`); membership and the viewer role come from
+  `/auth/me`. Account lists (`accounts`, `ledger-accounts` messages) take
+  `org` too. 0 means wherever Ledger is.
 - Checks: Ledger's checker (`scripts/check.sh`) and
   `npx web-ext lint --source-dir ui/extension` (0 errors expected; the
   `background.service_worker` warning is expected for Firefox).
