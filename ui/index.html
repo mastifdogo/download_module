@@ -187,6 +187,7 @@
 </div>
 
 <div id="mail" class="row small hidden" style="margin-top:0.5rem"></div>
+<div id="waiting" class="panel small hidden" style="margin-top:0.5rem"></div>
 <div id="training" class="panel small hidden" style="margin-top:0.5rem"></div>
 
 <div id="ext" class="panel hidden" style="margin-top:0.75rem">
@@ -212,6 +213,7 @@
 <div id="toast"></div>
 
 <script src="receipt.js"></script>
+<script src="mail-view.js"></script>
 <script>
 	// Served by Ledger at /m/downloads/, so API calls carry the user's login.
 	const call = (url, opts = {}) =>
@@ -1003,17 +1005,17 @@
 		const s = scanner;
 		$("bridge").open = !s.configured && !!s.admin;
 		if (!s.configured) {
-			box.replaceChildren(
+			box.replaceChildren(...[
 				el("div", {}, "No scanner is set up. A scanner or printer with AirScan (eSCL) on your network works: most HP, Canon, Epson, Brother and Xerox models from the last ten years."),
 				s.admin ? setupScanner() : el("div", { class: "muted", style: "margin-top:0.4rem" }, "An admin can set one up here."),
-			);
+			].filter(Boolean));
 			return;
 		}
 		if (!s.reachable) {
-			box.replaceChildren(
+			box.replaceChildren(...[
 				el("div", { class: "bad" }, `The scanner at ${s.url} isn't answering: ${s.error}`),
 				el("div", { class: "row", style: "margin-top:0.4rem" }, el("button", { class: "btn", onclick: loadScanner }, "Try again"), s.admin ? el("button", { class: "btn", onclick: () => { box.append(setupScanner()); } }, "Change scanner") : null),
-			);
+			].filter(Boolean));
 			return;
 		}
 		const source = el("select", {}, ...s.sources.map((x) => el("option", { value: x.id }, SOURCE_LABEL[x.id] || x.id)));
@@ -1054,12 +1056,12 @@
 				setTimeout(() => document.getElementById(`file-${job.file_id}`)?.scrollIntoView({ block: "start" }), 300);
 			} catch (e) { msg.textContent = ""; fail(e); } finally { go.disabled = false; }
 		} }, "Scan");
-		box.replaceChildren(
+		box.replaceChildren(...[
 			el("div", {}, el("strong", {}, s.name), el("span", { class: "muted" }, ` · ${s.state === "Idle" || !s.state ? "ready" : s.state.toLowerCase()}${s.adf === "ScannerAdfLoaded" ? " · paper in the feeder" : ""}`)),
 			el("div", { class: "row", style: "margin-top:0.5rem" }, source, color, res, duplexLabel),
 			el("div", { class: "row", style: "margin-top:0.5rem" }, name),
 			el("div", { class: "row", style: "margin-top:0.6rem" }, go, msg, el("span", { class: "spacer" }), s.admin ? el("button", { class: "btn", onclick: (e) => { e.target.replaceWith(setupScanner()); } }, "Change scanner") : null),
-		);
+		].filter(Boolean));
 	}
 	/** For admins: find scanners on the network, or type an address. */
 	function setupScanner() {
@@ -1127,7 +1129,7 @@
 			} catch (e) { fail(e); btn.disabled = false; }
 		};
 		const total = t.deleted + t.kept;
-		box.replaceChildren(
+		box.replaceChildren(...[
 			el("div", { class: "row" }, el("strong", {}, "What the email check learned"), el("span", { class: "spacer" }), el("button", { class: "btn small-btn", "aria-label": "Close", onclick: () => box.classList.add("hidden") }, "×")),
 			el("div", { class: "muted", style: "margin:0.2rem 0 0.5rem" }, total
 				? `From ${t.deleted} file${t.deleted === 1 ? "" : "s"} you deleted with "Delete and learn" and ${t.kept} you sent on. Later emails with files like the deleted ones, from the same sender, are skipped (listed below, so you can import them anyway).`
@@ -1141,15 +1143,16 @@
 				...sk.data.map((row) => {
 					const btn = el("button", { class: "btn small-btn" }, "Import anyway");
 					btn.onclick = () => importAnyway(row, btn);
+					const view = el("button", { class: "btn small-btn", onclick: () => MailView.open({ id: row.uid, folder: row.folder, onDone: afterMailView(() => toggleTraining(true)) }) }, "View");
 					return el("div", { class: "row", style: "margin-top:0.3rem;align-items:flex-start" },
 						el("div", { style: "flex:1;min-width:12rem" }, el("div", {}, row.subject || "(no subject)", el("span", { class: "muted" }, ` · ${row.mail_from}`)), el("div", { class: "muted" }, row.reason)),
-						btn);
+						view, btn);
 				})) : null,
 			el("div", { class: "actions", style: "margin-top:0.6rem" },
 				el("button", { class: "btn", onclick: download }, "Download the training file"),
 				el("label", { class: "btn" }, "Load a training file", loader),
 				total ? el("button", { class: "btn danger", onclick: () => forget({ all: true }, "everything the email check learned") }, "Forget everything") : null),
-		);
+		].filter(Boolean));
 	}
 
 	// ------------------------------------------------------------- Email (Settings → Import)
@@ -1176,13 +1179,54 @@
 				const res = await api("/mail/check", { method: "POST", body: "{}" });
 				if (res.error) throw new Error(res.error);
 				const n = (res.files || 0) + (res.emails_saved || 0);
-				toast(res.skipped ? `Email: ${res.skipped}.` : n ? `${n} new file${n === 1 ? "" : "s"} from email.` : `No new bills in email (${res.looked_at} looked at).`);
+				toast(res.skipped ? `Email: ${res.skipped}.` : n ? `${n} new file${n === 1 ? "" : "s"} from email.` : res.waiting ? `${res.waiting} email${res.waiting === 1 ? "" : "s"} to look at.` : `No new bills in email (${res.looked_at} looked at).`);
+				await loadWaiting();
 				$("filter").value = "new";
 				await load();
 			} catch (e) { fail(e); await loadMail(); }
 		} }, "Check email now");
 		const learnedLink = el("a", { href: "#", onclick: (e) => { e.preventDefault(); toggleTraining(); } }, "What it learned");
-		box.replaceChildren(line, m.missing ? null : btn, learnedLink);
+		box.replaceChildren(...[line, m.missing ? null : btn, learnedLink].filter(Boolean));
+		await loadWaiting();
+	}
+
+	// ------------------------------------------------------------- Emails to look at before importing (Settings → Import → Email)
+	/** After the email viewer imported or skipped an email: say so, and show the inbox's new files. */
+	const afterMailView = (then = () => {}) => async (r) => {
+		if (r.imported) {
+			const { files, duplicates } = r.imported;
+			toast(files ? `Imported ${files} file${files === 1 ? "" : "s"}.` : duplicates ? "Already in the inbox." : "Nothing imported.");
+			$("filter").value = "new";
+			await load().catch(fail);
+		} else if (r.dismissed) toast("Skipped.");
+		await loadWaiting();
+		then();
+	};
+	async function loadWaiting() {
+		const box = $("waiting");
+		let w;
+		try { w = await api("/mail/waiting"); } catch { return box.classList.add("hidden"); }
+		if (!w.total) return box.classList.add("hidden");
+		box.classList.remove("hidden");
+		const when = (r) => (r.mail_date ? new Date(r.mail_date).toLocaleDateString() : "");
+		box.replaceChildren(...[
+			el("strong", {}, `${w.total} email${w.total === 1 ? "" : "s"} to look at`),
+			el("div", { class: "muted", style: "margin:0.2rem 0 0.4rem" }, "Found by the email check with \u201cLook before importing\u201d on (Settings \u2192 Import \u2192 Email). View one to see the email and open its attachments, then import what you want."),
+			el("table", { class: "review", style: "width:100%" },
+				el("tbody", {}, ...w.data.map((row) => {
+					const view = () => MailView.open({ id: row.uid, folder: row.folder, canSkip: true, onDone: afterMailView() });
+					const skip = el("button", { class: "btn small-btn" }, "Skip");
+					skip.onclick = async () => {
+						skip.disabled = true;
+						try { await api("/mail/message/dismiss", { method: "POST", body: JSON.stringify({ id: row.uid, folder: row.folder }) }); await loadWaiting(); }
+						catch (e) { fail(e); skip.disabled = false; }
+					};
+					return el("tr", {},
+						el("td", { class: "wide" }, el("div", {}, row.subject || "(no subject)"), el("div", { class: "muted" }, [row.mail_from, when(row)].filter(Boolean).join(" \u00b7 "))),
+						el("td", { style: "white-space:nowrap;text-align:right" }, el("button", { class: "btn small-btn primary", onclick: view }, "View"), " ", skip));
+				}))),
+			w.total > w.data.length ? el("div", { class: "muted", style: "margin-top:0.3rem" }, `The newest ${w.data.length} are shown.`) : null,
+		].filter(Boolean));
 	}
 
 	// ------------------------------------------------------------- start (?file= from Ledger's search bar, ?tab=scan)
