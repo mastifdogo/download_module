@@ -253,6 +253,8 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `GET` | `/scanner` | the scanner set up: `{configured, reachable, name, sources: [{id, duplex, colorModes, resolutions}], state, adf}` |
 | `POST` | `/scanner/find`, `/scanner` | admins: AirScan scanners on the network `{data: [{name, url}]}`; use one `{url}` (`""` forgets it) |
 | `POST` | `/scans` | `{source?: "Platen"\|"Feeder", color?: "color"\|"gray", resolution?, duplex?, name?}` → 202 `{id, status}` |
+| `POST` | `/mail/range` | `{from, to}` (`YYYY-MM-DD`, both included) → 202: import the email of those days in the background, leaving out emails already looked at and files already in the inbox (same bytes) |
+| `GET` | `/mail/range` | the last range import in this organization: `{job: {status, from, to, done, total, result}, missing}` |
 | `GET` | `/mail/skipped` | emails (or some of their files) skipped because of what the check learned, with the reason |
 | `POST` | `/mail/skipped/import` | `{folder, uid}` (from `/mail/skipped`): import it anyway (and learn it's wanted) |
 | `DELETE` | `/files/:id?learn=1` | delete an email file and learn from it → `{deleted, learned}` |
@@ -334,6 +336,7 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.19.0:** Settings → Import → Email: **Import a date range** reads the email of chosen days from Ledger's mailbox (Gmail or IMAP), leaving out duplicates: emails already looked at, and files whose bytes are already in the inbox. Email checks now also skip a file that's already in the inbox (e.g. the same PDF in a reminder email).
 - **0.18.0:** Browser extension 0.5.0: a setting for the organization files are sent to
   (extension options, "Send files to"), and an Organization choice in the send window to send
   one file elsewhere. Ledger keeps the organization on the login, so the extension switches

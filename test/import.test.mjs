@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { test } from "node:test";
@@ -187,7 +188,7 @@ function fakeLedger(messages, { status = { connected: true, kind: "imap", accoun
 			status: async () => status,
 			search: async (query) => {
 				calls.push(`search ${JSON.stringify(query)}`);
-				const list = [...messages.values()].filter((m) => !query.before || m.date.slice(0, 10) < query.before).sort((a, b) => b.date.localeCompare(a.date));
+				const list = [...messages.values()].filter((m) => (!query.before || m.date.slice(0, 10) < query.before) && (!query.since || m.date.slice(0, 10) >= query.since)).sort((a, b) => b.date.localeCompare(a.date));
 				return { messages: list.slice(0, query.max).map(({ id, date, from, to, subject }) => ({ id, date, from, to, subject, snippet: "" })) };
 			},
 			message: async (id) => {
@@ -205,14 +206,14 @@ function fakeLedger(messages, { status = { connected: true, kind: "imap", accoun
 		if (/INSERT INTO mail_seen/.test(sql)) return void seen.push({ folder: params[0], uid: params[1], outcome: params[2], files: params[3], reason: params[6] }) ?? { rows: [] };
 		if (/SELECT outcome, reason FROM mail_seen/.test(sql)) return { rows: seen.filter((r) => r.folder === params[0] && r.uid === params[1]) };
 		if (/UPDATE mail_seen/.test(sql)) return { rows: [] };
-		if (/SELECT id FROM files WHERE sha256/.test(sql)) return { rows: [] };
+		if (/SELECT id FROM files WHERE sha256/.test(sql)) return { rows: saved.filter((f) => f.sha === params[0]).map((f, i) => ({ id: i + 1 })) };
 		if (/INSERT INTO email_check_state/.test(sql)) return void (state = { ...state, ...JSON.parse(params[0]) }) ?? { rows: [] };
 		if (/SELECT value FROM email_check_state/.test(sql)) return { rows: [{ value: state }] };
 		throw new Error(`unexpected SQL: ${sql}`);
 	};
-	const h = { q, T: (t) => t, maxBytes: async () => 25 << 20, syncNotice: async () => {}, learnKept: async (ids) => calls.push(`learnKept ${ids}`), saveFile: async (name, type, data, opts) => (saved.push({ name, type, bytes: data.length, ...opts }), saved.length) };
+	const h = { q, T: (t) => t, maxBytes: async () => 25 << 20, syncNotice: async () => {}, learnKept: async (ids) => calls.push(`learnKept ${ids}`), saveFile: async (name, type, data, opts) => (saved.push({ name, type, bytes: data.length, sha: createHash("sha256").update(data).digest("hex"), ...opts }), saved.length) };
 	const { checkMail } = registerMail(ctx, h);
-	return { checkMail, routes, seen, training, saved, calls, user: { username: "pat" }, state: () => state };
+	return { checkMail, routes, ctx, seen, training, saved, calls, user: { username: "pat" }, state: () => state };
 }
 
 const pdf = (n) => Buffer.from(`%PDF-1.4 ${n} ${"x".repeat(100)}`);
@@ -254,7 +255,7 @@ test("email check: what was learned skips before downloading; import anyway", as
 	assert.ok(!L.calls.includes("attachment 9.1 t1"), "the skipped attachment wasn't downloaded");
 	assert.match(L.seen[0].reason, /terms-and-conditions\.pdf: looks like 1 file you deleted/);
 	const out = await L.routes.get("POST /mail/skipped/import")({ body: { folder: "imap:me@example.com", uid: "9.1" }, user: L.user });
-	assert.equal(out.files, 2); // the stand-in knows no files yet, so both come in
+	assert.equal(out.files, 1, "the invoice is in the inbox already; only the skipped file comes in");
 	await assert.rejects(L.routes.get("POST /mail/skipped/import")({ body: { folder: "gmail:other@example.com", uid: "9.1" }, user: L.user }), /no such skipped email/);
 });
 
@@ -274,4 +275,40 @@ test("email check: more than 100 messages are walked back by date; no mailbox sa
 	assert.match(e.error, /no mailbox is connected.*Settings → Mail/);
 	const mail = await none.routes.get("GET /mail")({});
 	assert.match(mail.missing, /Settings → Mail/);
+});
+
+test("email date range: imports those days only, in the background, without duplicates", async () => {
+	const box = new Map([
+		msg("8.1", "2026-03-02", "Hydro One <bills@hydroone.com>", "Your March bill", [{ attachmentId: "a", filename: "march.pdf", mimeType: "application/pdf", data: pdf(31) }]),
+		msg("8.2", "2026-03-15", "Bell <bills@bell.ca>", "Your bill", [{ attachmentId: "b", filename: "bell.pdf", mimeType: "application/pdf", data: pdf(32) }]),
+		// the same PDF sent again in another email: one inbox file
+		msg("8.3", "2026-03-20", "Bell <bills@bell.ca>", "Reminder: your bill", [{ attachmentId: "c", filename: "bell-copy.pdf", mimeType: "application/pdf", data: pdf(32) }]),
+		msg("8.4", "2026-03-31", "Gas <bills@gas.example>", "Your bill", [{ attachmentId: "d", filename: "gas.pdf", mimeType: "application/pdf", data: pdf(34) }]),
+		msg("8.5", "2026-04-01", "Gas <bills@gas.example>", "Your April bill", [{ attachmentId: "e", filename: "april.pdf", mimeType: "application/pdf", data: pdf(35) }]),
+		msg("8.6", "2026-02-28", "Gas <bills@gas.example>", "Your Feb bill", [{ attachmentId: "f", filename: "feb.pdf", mimeType: "application/pdf", data: pdf(36) }]),
+	]);
+	const L = fakeLedger(box);
+	const post = L.routes.get("POST /mail/range");
+	const get = L.routes.get("GET /mail/range");
+	L.ctx.response = (status, body) => ({ status, body });
+	const wait = async () => { for (let i = 0; i < 50 && (await get({})).job?.status === "running"; i++) await new Promise((r) => setTimeout(r, 5)); return (await get({})).job; };
+
+	await assert.rejects(post({ body: { from: "2026-03-31", to: "2026-03-01" }, user: L.user }), (e) => e.status === 422);
+	await assert.rejects(post({ body: { from: "2026-02-30", to: "2026-03-01" }, user: L.user }), (e) => e.status === 422);
+	await assert.rejects(post({ body: {}, user: L.user }), (e) => e.status === 422);
+
+	const started = await post({ body: { from: "2026-03-01", to: "2026-03-31" }, user: L.user });
+	assert.equal(started.status, 202);
+	const job = await wait();
+	assert.equal(job.status, "done");
+	assert.deepEqual(L.saved.map((s) => s.name), ["march.pdf", "bell.pdf", "gas.pdf"], "only March (both ends included), the repeated PDF once");
+	assert.equal(job.result.duplicates, 1);
+	assert.equal(job.result.files, 3);
+	assert.equal(L.seen.find((s) => s.uid === "8.3").outcome, "duplicate");
+
+	// a wider range again: what's been looked at is left out
+	await post({ body: { from: "2026-02-01", to: "2026-04-30" }, user: L.user });
+	const again = await wait();
+	assert.equal(again.result.already_seen, 4);
+	assert.deepEqual(L.saved.slice(3).map((s) => s.name).sort(), ["april.pdf", "feb.pdf"]);
 });
