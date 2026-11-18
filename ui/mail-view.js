@@ -1,10 +1,10 @@
 // Looking at an email before importing it: who sent it, its text, its
 // attachments (each can be opened without importing it), then Import what's
-// ticked, or Skip. Used by the Inbox page (emails waiting under "Look before
-// importing", and the ones the check skipped) and the date-range page.
+// ticked. Used by the Inbox page: the emails the check skipped, and the
+// email behind an inbox file in its Send panel.
 //
-//   MailView.open({ id, folder, canSkip, onDone(result) })
-//     result: { imported: { files, duplicates } } | { dismissed: true }
+//   MailView.open({ id, folder, onDone(result) })
+//     result: { imported: { files, duplicates } }
 //   MailView.open({ file })   the email behind inbox file `file` (an .eml, or the
 //     email a file came from), read only: to look at it before sending the file on
 //
@@ -83,7 +83,7 @@
 		}
 	}
 
-	async function open({ id, folder = "", file = null, canSkip = false, onDone = () => {} }) {
+	async function open({ id, folder = "", file = null, onDone = () => {} }) {
 		const readOnly = file != null;
 		ensureStyle();
 		const box = el("div", { class: "mv-body" }, el("span", { class: "mv-muted" }, "Opening the email…"));
@@ -123,11 +123,9 @@
 		const emlBox = el("input", { type: "checkbox", checked: !email.attachments.some((a) => a.suggested && !a.too_large) });
 		const seen = readOnly ? null : email.seen;
 		const status = readOnly ? (email.source === "file" ? "This .eml file, as it will be sent on." : "The email this file came from (from the mailbox).") : seen?.outcome === "files" ? `Already imported (${seen.files} file${seen.files === 1 ? "" : "s"}); files already in the inbox aren't added twice.`
-			: seen?.outcome === "dismissed" ? "You skipped this email before."
-				: seen?.reason ? `The check skipped: ${seen.reason}` : "";
+			: seen?.reason ? `The check skipped: ${seen.reason}` : "";
 
 		const importBtn = el("button", { type: "button", class: "mv-primary" }, "Import");
-		const skipBtn = canSkip ? el("button", { type: "button" }, "Skip") : null;
 		const update = () => {
 			const n = checks.filter(([cb]) => cb.checked).length + (emlBox.checked ? 1 : 0);
 			importBtn.disabled = n === 0;
@@ -150,15 +148,6 @@
 				onDone({ imported: r });
 			} catch (e) { setError(e.message); update(); }
 		};
-		if (skipBtn) skipBtn.onclick = async () => {
-			skipBtn.disabled = true;
-			setError("");
-			try {
-				await api("/mail/message/dismiss", { method: "POST", body: JSON.stringify({ id: email.id, folder: email.folder }) });
-				close();
-				onDone({ dismissed: true });
-			} catch (e) { setError(e.message); skipBtn.disabled = false; }
-		};
 
 		const when = email.date ? new Date(email.date).toLocaleString() : "";
 		box.replaceChildren(...[
@@ -176,7 +165,7 @@
 				readOnly ? null : el("div", { class: "mv-att" }, el("label", {}, emlBox, el("span", {}, "The email itself (.eml)"))),
 				email.attachments.length ? null : el("span", { class: "mv-muted" }, "No attachments.")),
 			error,
-			el("div", { class: "mv-foot" }, el("button", { type: "button", onclick: close }, "Close"), readOnly ? null : skipBtn, readOnly ? null : importBtn),
+			el("div", { class: "mv-foot" }, el("button", { type: "button", onclick: close }, "Close"), readOnly ? null : importBtn),
 		].filter(Boolean));
 	}
 

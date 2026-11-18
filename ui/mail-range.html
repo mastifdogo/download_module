@@ -91,7 +91,6 @@
 		const items = [];
 		if (r.files) items.push(`<b>${n(r.files, "file")}</b> added to the inbox`);
 		if (r.emails_saved) items.push(`${n(r.emails_saved, "email")} saved as .eml`);
-		if (r.waiting) items.push(`<b>${n(r.waiting, "email")}</b> to look at on the Import page before importing (Look before importing is on)`);
 		if (r.duplicates) items.push(`${n(r.duplicates, "duplicate file")} left out (already in the inbox)`);
 		if (r.already_seen) items.push(`${n(r.already_seen, "email")} left out (looked at before)`);
 		if (r.filtered) items.push(`${n(r.filtered, "email")} without a keyword`);

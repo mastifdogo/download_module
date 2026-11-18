@@ -125,14 +125,9 @@ sender, date, text and the other attachments, from the mailbox). An `.eml` file 
 email** (also next to *Send…*), read from the file itself. Files imported before 0.21.0 don't
 know their email yet; `.eml` files work either way.
 
-**Look before importing** (Settings → Import → Email, off by default): the check imports nothing by
-itself. Each email it finds waits under *N emails to look at* on the Inbox, with a dashboard to-do.
-**View** opens it: who sent it and when, its text (an HTML email is shown as plain text, so nothing
-in it runs or loads), and its attachments, each of which you can **View** (PDFs, pictures, text) or
-download without importing it. Tick what you want (the files the check would have taken are ticked
-already; the email itself as `.eml` is a choice too) and **Import**, or **Skip** it. A date range
-import does the same while this is on. Skipped emails under *What it learned* have a **View**
-button too, so you can look before *Import anyway*.
+Skipped emails under *What it learned* have a **View** button: the email (an HTML email is shown
+as plain text, so nothing in it runs or loads) and its attachments, each of which you can open or
+download without importing it. Tick what you want and **Import**, or use *Import anyway*.
 
 **Coming from Import 0.8 or earlier:** Import no longer has its own IMAP settings or Gmail search;
 it reads whichever mailbox Ledger is connected to. If you used IMAP here, set that mailbox up under
@@ -274,11 +269,9 @@ chunks of 512 KB, so each request stays under Ledger's 1 MiB limit:
 | `POST` | `/mail/skipped/import` | `{folder, uid}` (from `/mail/skipped`): import it anyway (and learn it's wanted) |
 | `GET` | `/files/:id/email` | the email an inbox file is (`.eml`, read from the file) or came from (read from the mailbox): the same shape as `/mail/message`, with `source: "file"\|"mailbox"` |
 | `GET` | `/files/:id/email/attachment?attachment=` | one of that email's attachments, base64 |
-| `GET` | `/mail/waiting` | emails waiting to be looked at (*Look before importing*): `{data: [{folder, uid, subject, mail_from, mail_date}], total}` |
 | `GET` | `/mail/message?id=&folder=` | one email, to look at: `{subject, from, to, date, text, attachments: [{attachment_id, filename, content_type, size_bytes, suggested, too_large}], seen}`; 409 if `folder` is another mailbox |
 | `GET` | `/mail/message/attachment?id=&attachment=&folder=` | an attachment's bytes, base64, to open it without importing it |
 | `POST` | `/mail/message/import` | `{id, folder?, attachments?: [attachment_id], email?: true}` → `{files, file_ids, duplicates}`: import those (neither given: what the check would take), whatever the keywords and what was learned |
-| `POST` | `/mail/message/dismiss` | `{id, folder}`: skip a waiting email |
 | `DELETE` | `/files/:id?learn=1` | delete an email file and learn from it → `{deleted, learned}` |
 | `GET` | `/training`, `/training/file` | what was learned (senders, recent examples); the training file |
 | `POST` | `/training/file`, `/training/forget` | load a training file → `{added, skipped}`; forget `{sender}` or `{all: true}` |
@@ -336,9 +329,9 @@ lib/learn.mjs          what the email check learns: features, naive Bayes per se
 migrations/            files and file_chunks (schema mod_downloads); 002 module hand-offs; 003 AI
                        extractions; 004 file origins, the email log; 005 email training; 006 clearer
                        names for backup CSVs; 007 storage_path (ctx.storage); 008 document_id
-                       (ctx.documents); 009 phone app; 010 mail_date (look before importing); 011 the email each file came from
+                       (ctx.documents); 009 phone app; 010 mail_date; 011 the email each file came from; 012 lets go of emails held by "Look before importing"
 ui/index.html          the Import page: inbox, forwarding, AI review, Scan (scanner, camera, upload), the extension download
-ui/mail-view.js        looking at an email (text, attachments) before importing it
+ui/mail-view.js        looking at an email (text, attachments): a skipped one, or the one behind an inbox file
 ui/receipt.js          finding, straightening and cleaning up a receipt in a photo (canvas, no libraries)
 ui/scan-bridge/        the USB scan bridge: Windows (PowerShell, WIA) and Mac/Linux (Python, SANE)
 test/                  npm test: the email check (a stand-in mailbox), eSCL (a fake scanner), PDF, learning, the Python scan bridge,
@@ -360,6 +353,9 @@ accessible by integration", allow it under Settings → Actions → General → 
 
 ## Changes
 
+- **0.21.1:** Removed **Look before importing** (0.20.0): the email check imports bills straight
+  into the inbox again, and you look at a file and its email in its **Send…** panel before it goes
+  to Ledger. Emails that setting held back are looked at again by the next check.
 - **0.21.0:** The inbox's **Send…** panel shows the file before it goes to Ledger: a preview of the
   PDF, picture or text file, and **View the email it came from** for files from email (`.eml` files:
   **View the email**, read from the file). Each file from email now remembers which email it was.

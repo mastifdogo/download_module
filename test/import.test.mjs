@@ -213,13 +213,6 @@ function fakeLedger(messages, { status = { connected: true, kind: "imap", accoun
 			return { rows: [] };
 		}
 		if (/SELECT (outcome, )?(files, )?reason FROM mail_seen/.test(sql)) return { rows: seen.filter((r) => r.folder === params[0] && r.uid === params[1]) };
-		if (/FROM mail_seen\s+WHERE outcome = 'waiting'/.test(sql)) return { rows: seen.filter((r) => r.outcome === "waiting").map((r, _, all) => ({ ...r, total: all.length })) };
-		if (/SELECT subject FROM mail_seen WHERE outcome = 'waiting'/.test(sql)) return { rows: seen.filter((r) => r.outcome === "waiting") };
-		if (/UPDATE mail_seen SET outcome = 'dismissed'/.test(sql)) {
-			const r = seen.find((x) => x.folder === params[0] && x.uid === params[1] && x.outcome === "waiting");
-			if (r) r.outcome = "dismissed";
-			return { rows: [], rowCount: r ? 1 : 0 };
-		}
 		if (/SELECT id FROM files WHERE sha256/.test(sql)) return { rows: saved.filter((f) => f.sha === params[0]).map((f, i) => ({ id: i + 1 })) };
 		if (/INSERT INTO email_check_state/.test(sql)) return void (state = { ...state, ...JSON.parse(params[0]) }) ?? { rows: [] };
 		if (/SELECT value FROM email_check_state/.test(sql)) return { rows: [{ value: state }] };
@@ -336,58 +329,45 @@ test("email date range: imports those days only, in the background, without dupl
 	assert.deepEqual(L.saved.slice(3).map((s) => s.name).sort(), ["april.pdf", "feb.pdf"]);
 });
 
-test("look before importing: emails wait, are viewed (attachments without importing), then imported or skipped", async () => {
+test("viewing an email before importing it by hand: attachments open without importing, then import what's ticked", async () => {
 	const today = new Date().toISOString().slice(0, 10);
 	const box = new Map([
 		msg("6.1", today, "Hydro One <bills@hydroone.com>", "Your October bill", [{ attachmentId: "h1", filename: "invoice.pdf", mimeType: "application/octet-stream", data: pdf(61) }, { attachmentId: "h2", filename: "terms.docx", mimeType: "application/msword", data: Buffer.from("terms") }]),
 		msg("6.2", today, "City <water@city.example>", "Water invoice ready", [], ""),
-		msg("6.3", today, "Shop <news@shop.example>", "Weekend sale"),
 	]);
 	box.get("6.2").html = "<p>Amount&nbsp;due:<br><b>$40.00</b></p><script>x()</script><p>Thanks &amp; bye</p>";
 	const L = fakeLedger(box, { settings: { mail_review: true } });
 	const r = await L.checkMail();
-	assert.deepEqual({ waiting: r.waiting, files: r.files, filtered: r.filtered }, { waiting: 2, files: 0, filtered: 1 });
-	assert.equal(L.saved.length, 0, "nothing is imported before someone looks");
-	assert.ok(!L.calls.some((c) => c.startsWith("attachment")), "nothing is downloaded either");
-	assert.ok(L.calls.includes("todo Look at 2 emails in Import"));
-
-	const waiting = await L.routes.get("GET /mail/waiting")({});
-	assert.equal(waiting.total, 2);
-	const folder = waiting.data[0].folder;
+	assert.equal(r.files, 1, "an old 'look before importing' setting does nothing any more");
+	assert.equal(r.waiting, undefined);
+	assert.equal(L.routes.get("GET /mail/waiting"), undefined);
+	assert.equal(L.routes.get("POST /mail/message/dismiss"), undefined);
+	const folder = L.seen[0].folder;
 	const query = (o) => new URLSearchParams(o);
 
 	const v = await L.routes.get("GET /mail/message")({ query: query({ id: "6.1", folder }) });
 	assert.equal(v.subject, "Your October bill");
 	assert.deepEqual(v.attachments.map((a) => [a.filename, a.suggested]), [["invoice.pdf", true], ["terms.docx", false]]);
-	assert.equal(v.seen.outcome, "waiting");
+	assert.equal(v.seen.outcome, "files");
 	const html = await L.routes.get("GET /mail/message")({ query: query({ id: "6.2" }) });
 	assert.equal(html.text, "Amount due:\n$40.00\nThanks & bye", "HTML mail is shown as readable text, scripts left out");
 	await assert.rejects(L.routes.get("GET /mail/message")({ query: query({ id: "6.1", folder: "gmail:other@example.com" }) }), (e) => e.status === 409);
 	await assert.rejects(L.routes.get("GET /mail/message")({ query: query({ id: "nope" }) }), (e) => e.status === 404);
 	await assert.rejects(L.routes.get("GET /mail/message")({ query: query({}) }), (e) => e.status === 422);
 
-	const a = await L.routes.get("GET /mail/message/attachment")({ query: query({ id: "6.1", attachment: "h1", folder }) });
-	assert.equal(a.content_type, "application/pdf");
-	assert.equal(Buffer.from(a.data, "base64").toString("latin1").slice(0, 5), "%PDF-");
-	assert.equal(L.saved.length, 0, "opening an attachment imports nothing");
+	const before = L.saved.length;
+	const a = await L.routes.get("GET /mail/message/attachment")({ query: query({ id: "6.1", attachment: "h2", folder }) });
+	assert.equal(Buffer.from(a.data, "base64").toString(), "terms");
+	assert.equal(L.saved.length, before, "opening an attachment imports nothing");
 	await assert.rejects(L.routes.get("GET /mail/message/attachment")({ query: query({ id: "6.1", attachment: "zz" }) }), (e) => e.status === 404);
 
 	const imp = L.routes.get("POST /mail/message/import");
 	await assert.rejects(imp({ body: { id: "6.1", attachments: [], email: false }, user: L.user }), (e) => e.status === 422);
 	await assert.rejects(imp({ body: { id: "6.1", attachments: ["zz"] }, user: L.user }), (e) => e.status === 422);
 	const got = await imp({ body: { id: "6.1", folder, attachments: ["h1", "h2"] }, user: L.user });
-	assert.equal(got.files, 2);
-	assert.deepEqual(L.saved.map((s) => [s.name, s.type, s.origin]), [["invoice.pdf", "application/pdf", "email"], ["terms.docx", "application/msword", "email"]]);
-	assert.equal(L.seen.find((s) => s.uid === "6.1").outcome, "files");
-	const twice = await imp({ body: { id: "6.1", folder, attachments: ["h1"] }, user: L.user });
-	assert.deepEqual({ files: twice.files, duplicates: twice.duplicates }, { files: 0, duplicates: 1 });
-
-	const dismiss = L.routes.get("POST /mail/message/dismiss");
-	await dismiss({ body: { id: "6.2", folder } });
-	assert.equal(L.seen.find((s) => s.uid === "6.2").outcome, "dismissed");
-	await assert.rejects(dismiss({ body: { id: "6.2", folder } }), (e) => e.status === 404);
-	assert.equal((await L.routes.get("GET /mail/waiting")({})).total, 0);
-	assert.ok(L.calls.includes("remove mail-waiting"));
+	assert.deepEqual({ files: got.files, duplicates: got.duplicates }, { files: 1, duplicates: 1 }, "the invoice was in the inbox already; the terms come in");
+	assert.equal(L.saved.at(-1).name, "terms.docx");
+	assert.equal(L.saved.at(-1).mail.uid, "6.1");
 });
 
 const EML = [
