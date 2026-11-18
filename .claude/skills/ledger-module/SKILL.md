@@ -62,9 +62,10 @@ feature the module uses (the context file says which version added what;
   `configured`, `images.configured`, `readsPdf`, and validate `json()` data)
   and mail through `ctx.mail` (Ledger 0.18.3: the mailbox under Settings →
   Mail, IMAP or Gmail). No IMAP, SMTP, OAuth or API keys of the module's own.
-- **PDFs, and PNG/JPEG scans, go in Ledger's PDF store** (`ctx.documents`,
-  Ledger 0.19.0), filed with `add({ origin: "imported" }, req.user)`; only
-  the document id is kept. Never in `ctx.storage` or `bytea` columns.
+- **Every file, of any type, is in Ledger's Documents** (`ctx.documents`,
+  the one file store since Ledger 0.27.0); only the document id is kept.
+  Nothing in `ctx.storage` (its `put` answers 410) or in `bytea` columns
+  (Ledger doesn't start a module that has one).
 - Files for other modules go through `ctx.files` (Ledger ≥ 0.11.0), never
   another module's tables: pick receivers from `ctx.files.targets(kind)`.
 - Organizations (Ledger ≥ 0.11.0): each organization's books and this
@@ -81,13 +82,9 @@ feature the module uses (the context file says which version added what;
   background job or `onReceive`, and no auto-approve setting.
 - Backups (Ledger ≥ 0.13.0) save every table of this schema as a CSV in each
   backup's folder, next to the dump: keep table and column names readable,
-  and no secrets in tables. `file_chunks` holds every file's bytes, so it is
-  the big one on older Ledger; from 0.13.2 files live in `ctx.storage` and
-  backups carry them as real files. From Ledger 0.13.1 binary columns show
-  only their size in the CSV (0.13.0 wrote base64, which a large inbox can
-  make fail). A file's
-  name, type, size, hash and dates are readable in `files`, which
-  `file_chunks.file_id` points to.
+  and no secrets in tables. `file_chunks` (which held files' bytes on old
+  Ledgers) is gone since 0.22.0: a file's name, type, size, hash and dates
+  are readable in `files`, and its bytes are the document `files.document_id`.
 - Restores (Ledger ≥ 0.14.0) replace this schema's tables and its
   `ctx.storage` files with a backup's; a restore from an uploaded dump
   (0.14.2) replaces only the tables. So a `files.storage_path` may point at
