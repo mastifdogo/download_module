@@ -4,6 +4,7 @@ import http from "node:http";
 import { test } from "node:test";
 import { capabilities, isLocalAddress, normalizeScannerUrl, parseDns, scan, ScannerError, status } from "../lib/escl.mjs";
 import { emailCandidates, htmlToText, looksLikeBill, registerMail, sentByMe } from "../lib/mail.mjs";
+import { decodeWords, parseEml } from "../lib/eml.mjs";
 import { jpegInfo, jpegsToPdf } from "../lib/pdf.mjs";
 
 const JPEG = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAA8ACgDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKACiiigAooooAKKKKAP//Z", "base64"); // 40 x 60, RGB
@@ -224,7 +225,16 @@ function fakeLedger(messages, { status = { connected: true, kind: "imap", accoun
 		if (/SELECT value FROM email_check_state/.test(sql)) return { rows: [{ value: state }] };
 		throw new Error(`unexpected SQL: ${sql}`);
 	};
-	const h = { q, T: (t) => t, maxBytes: async () => 25 << 20, syncNotice: async () => {}, learnKept: async (ids) => calls.push(`learnKept ${ids}`), saveFile: async (name, type, data, opts) => (saved.push({ name, type, bytes: data.length, sha: createHash("sha256").update(data).digest("hex"), ...opts }), saved.length) };
+	const h = {
+		q, T: (t) => t, maxBytes: async () => 25 << 20, syncNotice: async () => {}, learnKept: async (ids) => calls.push(`learnKept ${ids}`),
+		saveFile: async (name, type, data, opts) => (saved.push({ name, type, bytes: data.length, data, sha: createHash("sha256").update(data).digest("hex"), ...opts }), saved.length),
+		getFile: async (id) => {
+			const f = saved[Number(id) - 1];
+			if (!f) throw new ctx.HttpError(404, "no such file");
+			return { id: Number(id), name: f.name, content_type: f.type, size_bytes: f.bytes, origin: f.origin ?? "", mail_folder: f.mail?.folder ?? "", mail_uid: f.mail?.uid ?? "" };
+		},
+		fileBytes: async (f) => saved[f.id - 1].data,
+	};
 	const { checkMail } = registerMail(ctx, h);
 	return { checkMail, routes, ctx, seen, training, saved, calls, user: { username: "pat" }, state: () => state };
 }
@@ -378,4 +388,86 @@ test("look before importing: emails wait, are viewed (attachments without import
 	await assert.rejects(dismiss({ body: { id: "6.2", folder } }), (e) => e.status === 404);
 	assert.equal((await L.routes.get("GET /mail/waiting")({})).total, 0);
 	assert.ok(L.calls.includes("remove mail-waiting"));
+});
+
+const EML = [
+	"From: =?UTF-8?B?SHlkcm8gUXXDqWJlYw==?= <bills@hq.example>",
+	"To: me@example.com",
+	"Subject: =?utf-8?Q?Votre_facture_d=C3=A9c?= =?utf-8?Q?embre?=",
+	"Date: Tue, 10 Nov 2026 10:00:00 +0000",
+	"MIME-Version: 1.0",
+	'Content-Type: multipart/mixed; boundary="b1"',
+	"",
+	"--b1",
+	'Content-Type: multipart/alternative; boundary="b2"',
+	"",
+	"--b2",
+	"Content-Type: text/plain; charset=utf-8",
+	"Content-Transfer-Encoding: quoted-printable",
+	"",
+	"Montant d=C3=BB : 85,50 $=",
+	"",
+	"Merci",
+	"--b2",
+	"Content-Type: text/html; charset=utf-8",
+	"",
+	"<p>Montant</p>",
+	"--b2--",
+	"--b1",
+	"Content-Type: application/pdf",
+	"Content-Disposition: attachment; filename*=UTF-8''facture%20d%C3%A9c.pdf",
+	"Content-Transfer-Encoding: base64",
+	"",
+	Buffer.from("%PDF-1.4 hello").toString("base64"),
+	"--b1--",
+	"",
+].join("\r\n");
+
+test("eml: headers, the text part, attachments with encoded names", () => {
+	assert.equal(decodeWords("=?ISO-8859-1?Q?caf=E9?= ok"), "café ok");
+	const e = parseEml(Buffer.from(EML, "latin1"));
+	assert.equal(e.from, "Hydro Québec <bills@hq.example>");
+	assert.equal(e.subject, "Votre facture décembre");
+	assert.equal(e.date, "2026-11-10T10:00:00.000Z");
+	assert.equal(e.text.trim(), "Montant dû : 85,50 $\r\nMerci");
+	assert.equal(e.html, "<p>Montant</p>");
+	assert.deepEqual(e.attachments.map((a) => [a.filename, a.content_type, a.data.toString()]), [["facture déc.pdf", "application/pdf", "%PDF-1.4 hello"]]);
+	const plain = parseEml(Buffer.from("Subject: hi\n\nJust text\n"));
+	assert.equal(plain.text, "Just text\n");
+	assert.equal(parseEml(Buffer.from("garbage")).subject, "");
+});
+
+test("the email behind an inbox file: an .eml from its bytes, an attachment from the mailbox, before sending it on", async () => {
+	const today = new Date().toISOString().slice(0, 10);
+	const box = new Map([
+		msg("4.1", today, "Hydro One <bills@hydroone.com>", "Your bill", [{ attachmentId: "x1", filename: "invoice.pdf", mimeType: "application/pdf", data: pdf(41) }], "Amount due $10"),
+		msg("4.2", today, "City <water@city.example>", "Water invoice ready", [], "Amount due 40.00"),
+	]);
+	const L = fakeLedger(box);
+	await L.checkMail();
+	assert.deepEqual(L.saved.map((s) => [s.name, s.mail?.uid]), [["invoice.pdf", "4.1"], ["Water invoice ready.eml", "4.2"]], "each file remembers its email");
+	const get = L.routes.get("GET /files/:id/email");
+	const fromMailbox = await get({ params: { id: "1" } });
+	assert.equal(fromMailbox.source, "mailbox");
+	assert.equal(fromMailbox.text, "Amount due $10");
+	assert.equal(fromMailbox.attachments[0].filename, "invoice.pdf");
+	const att = await L.routes.get("GET /files/:id/email/attachment")({ params: { id: "1" }, query: new URLSearchParams({ attachment: "x1" }) });
+	assert.equal(Buffer.from(att.data, "base64").toString("latin1").slice(0, 5), "%PDF-");
+
+	// an .eml file is read from the inbox's own copy (no mailbox needed)
+	L.saved.push({ name: "forwarded.eml", type: "message/rfc822", bytes: EML.length, data: Buffer.from(EML, "latin1"), origin: "upload" });
+	const eml = await get({ params: { id: "3" } });
+	assert.equal(eml.source, "file");
+	assert.equal(eml.subject, "Votre facture décembre");
+	assert.deepEqual(eml.attachments.map((a) => a.filename), ["facture déc.pdf"]);
+	const a0 = await L.routes.get("GET /files/:id/email/attachment")({ params: { id: "3" }, query: new URLSearchParams({ attachment: "0" }) });
+	assert.equal(a0.content_type, "application/pdf");
+	await assert.rejects(L.routes.get("GET /files/:id/email/attachment")({ params: { id: "3" }, query: new URLSearchParams({ attachment: "7" }) }), (e) => e.status === 404);
+
+	// a file that didn't come from email
+	L.saved.push({ name: "scan.pdf", type: "application/pdf", bytes: 5, data: pdf(1), origin: "scanner" });
+	await assert.rejects(get({ params: { id: "4" } }), (e) => e.status === 404 && /didn't come from email/.test(e.message));
+	// the email was deleted from the mailbox since
+	box.delete("4.1");
+	await assert.rejects(get({ params: { id: "1" } }), (e) => e.status === 404 && /isn't in the mailbox/.test(e.message));
 });

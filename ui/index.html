@@ -69,6 +69,10 @@
 	.pill.archived { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
 	.actions { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem; }
 	.forward { margin-top: 0.5rem; }
+	.look { margin-bottom: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem; }
+	.look summary { cursor: pointer; color: var(--muted); }
+	.look iframe { display: block; width: 100%; height: min(60vh, 36rem); margin-top: 0.3rem; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+	.look img { display: block; max-width: 100%; max-height: 70vh; margin-top: 0.3rem; border: 1px solid var(--border); border-radius: 6px; }
 	.hidden { display: none !important; }
 	#toast { position: fixed; right: 1rem; bottom: 1rem; max-width: 440px; padding: 0.6rem 0.9rem; border-radius: 6px; background: var(--text); color: var(--bg); display: none; white-space: pre-wrap; z-index: 10; }
 	#toast.error { background: var(--bad); color: #fff; }
@@ -447,6 +451,7 @@
 		return el("div", { class: "actions" },
 			b("Send…", () => { openId = openId === f.id ? null : f.id; render(); }, "btn primary"),
 			viewable(f) ? b("Open", () => window.open(f.url, "_blank", "noopener")) : null,
+			isEml(f) ? b("View email", () => MailView.open({ file: f.id })) : null,
 			b("Download", () => download(f)),
 			f.status === "archived" ? b("Back to inbox", () => patch(f, { status: "new" })) : b("Archive", () => patch(f, { status: "archived" })),
 			me?.root
@@ -460,8 +465,37 @@
 		);
 	}
 
+	// ------------------------------------------------------------- looking at a file (and its email) before sending it on
+	const isEml = (f) => /^message\/rfc822\b/i.test(f.content_type || "") || /\.eml$/i.test(f.name);
+	const hasEmail = (f) => isEml(f) || !!f.mail_uid;
+	const previews = new Map(); // file id → its preview, kept across re-renders so a PDF isn't loaded again
+	function previewOf(f) {
+		if (!viewable(f)) return null;
+		const key = `${f.id} ${f.url}`;
+		if (previews.has(key)) return previews.get(key);
+		const image = /^image\//.test(f.content_type || "") || IMAGE_RE.test(f.name);
+		const det = el("details", { open: true },
+			el("summary", {}, "Preview"),
+			image ? el("img", { src: f.url, alt: f.name, loading: "lazy" }) : el("iframe", { src: f.url, title: `Preview of ${f.name}`, loading: "lazy" }));
+		previews.set(key, det);
+		return det;
+	}
+	/** The top of the Send panel: the document itself, and the email it is or came from. */
+	function lookPanel(f) {
+		const preview = previewOf(f);
+		const email = hasEmail(f)
+			? el("div", { class: "row" },
+				el("button", { class: "btn", onclick: () => MailView.open({ file: f.id }) }, isEml(f) ? "View the email" : "View the email it came from"),
+				el("span", { class: "muted" }, isEml(f) ? "Read it before sending it on." : `From ${f.origin_detail || "email"}: read it before sending this file on.`))
+			: null;
+		if (!preview && !email) return null;
+		return el("div", { class: "look" }, preview, email);
+	}
+
 	function forwardPanel(f) {
 		const box = el("div", { class: "panel forward small" });
+		const look = lookPanel(f);
+		if (look) box.append(look);
 		const opts = moduleOptions(f);
 		// Auto sort's own routes, until it takes files through ctx.files (then it's listed above instead).
 		if (autosort && !(targets || []).some((t) => t.id === "categorizer")) {

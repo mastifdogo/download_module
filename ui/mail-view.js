@@ -5,6 +5,8 @@
 //
 //   MailView.open({ id, folder, canSkip, onDone(result) })
 //     result: { imported: { files, duplicates } } | { dismissed: true }
+//   MailView.open({ file })   the email behind inbox file `file` (an .eml, or the
+//     email a file came from), read only: to look at it before sending the file on
 //
 // Everything from the email goes in with textContent; the HTML of an HTML
 // email is never rendered (the server turns it into text), so nothing in it
@@ -65,8 +67,9 @@
 		const viewable = VIEWABLE.test(a.content_type) || /\.(pdf|png|jpe?g|gif|webp|txt)$/i.test(a.filename);
 		const tab = viewable ? window.open("", "_blank") : null;
 		try {
-			const qs = new URLSearchParams({ id: email.id, attachment: a.attachment_id, folder: email.folder });
-			const c = await api(`/mail/message/attachment?${qs}`);
+			const c = email.file_id != null
+				? await api(`/files/${email.file_id}/email/attachment?${new URLSearchParams({ attachment: a.attachment_id })}`)
+				: await api(`/mail/message/attachment?${new URLSearchParams({ id: email.id, attachment: a.attachment_id, folder: email.folder })}`);
 			const bytes = Uint8Array.from(atob(c.data), (ch) => ch.charCodeAt(0));
 			const url = URL.createObjectURL(new Blob([bytes], { type: c.content_type || "application/octet-stream" }));
 			if (tab) tab.location.href = url;
@@ -80,7 +83,8 @@
 		}
 	}
 
-	async function open({ id, folder = "", canSkip = false, onDone = () => {} }) {
+	async function open({ id, folder = "", file = null, canSkip = false, onDone = () => {} }) {
+		const readOnly = file != null;
 		ensureStyle();
 		const box = el("div", { class: "mv-body" }, el("span", { class: "mv-muted" }, "Opening the email…"));
 		const dlg = el("dialog", { class: "mv", "aria-label": "Email" }, box);
@@ -92,9 +96,12 @@
 
 		let email;
 		try {
-			const qs = new URLSearchParams({ id });
-			if (folder) qs.set("folder", folder);
-			email = await api(`/mail/message?${qs}`);
+			if (readOnly) email = await api(`/files/${encodeURIComponent(file)}/email`);
+			else {
+				const qs = new URLSearchParams({ id });
+				if (folder) qs.set("folder", folder);
+				email = await api(`/mail/message?${qs}`);
+			}
 		} catch (e) {
 			box.replaceChildren(el("div", { class: "mv-head" }, el("h3", {}, "Can't open the email"), closeBtn()), el("p", { class: "mv-bad" }, e.message));
 			return;
@@ -104,18 +111,18 @@
 		const setError = (msg) => { error.textContent = msg; error.hidden = !msg; };
 		const checks = [];
 		const rows = email.attachments.map((a) => {
-			const cb = el("input", { type: "checkbox", checked: a.suggested && !a.too_large, disabled: a.too_large });
-			checks.push([cb, a.attachment_id]);
+			const cb = readOnly ? null : el("input", { type: "checkbox", checked: a.suggested && !a.too_large, disabled: a.too_large });
+			if (cb) checks.push([cb, a.attachment_id]);
 			const view = el("button", { type: "button", class: "mv-small", disabled: a.too_large });
 			view.textContent = VIEWABLE.test(a.content_type) || /\.(pdf|png|jpe?g|gif|webp|txt)$/i.test(a.filename) ? "View" : "Download";
 			view.onclick = () => openAttachment(email, a, view, setError);
 			return el("div", { class: "mv-att" },
-				el("label", {}, cb, el("span", {}, a.filename), el("span", { class: "mv-muted" }, `${size(a.size_bytes)}${a.too_large ? " · too large to import" : ""}`)),
+				el("label", {}, cb, el("span", {}, a.filename), el("span", { class: "mv-muted" }, `${size(a.size_bytes)}${a.too_large ? (readOnly ? " · too large to open here" : " · too large to import") : ""}`)),
 				view);
 		});
 		const emlBox = el("input", { type: "checkbox", checked: !email.attachments.some((a) => a.suggested && !a.too_large) });
-		const seen = email.seen;
-		const status = seen?.outcome === "files" ? `Already imported (${seen.files} file${seen.files === 1 ? "" : "s"}); files already in the inbox aren't added twice.`
+		const seen = readOnly ? null : email.seen;
+		const status = readOnly ? (email.source === "file" ? "This .eml file, as it will be sent on." : "The email this file came from (from the mailbox).") : seen?.outcome === "files" ? `Already imported (${seen.files} file${seen.files === 1 ? "" : "s"}); files already in the inbox aren't added twice.`
 			: seen?.outcome === "dismissed" ? "You skipped this email before."
 				: seen?.reason ? `The check skipped: ${seen.reason}` : "";
 
@@ -164,12 +171,12 @@
 			el("pre", { class: "mv-text" }, email.text || "(This email has no text.)"),
 			email.text_cut ? el("div", { class: "mv-muted" }, "The text is long; only its start is shown.") : null,
 			el("div", { class: "mv-atts" },
-				el("strong", {}, "Import"),
+				el("strong", {}, readOnly ? "Attachments" : "Import"),
 				...rows,
-				el("div", { class: "mv-att" }, el("label", {}, emlBox, el("span", {}, "The email itself (.eml)"))),
+				readOnly ? null : el("div", { class: "mv-att" }, el("label", {}, emlBox, el("span", {}, "The email itself (.eml)"))),
 				email.attachments.length ? null : el("span", { class: "mv-muted" }, "No attachments.")),
 			error,
-			el("div", { class: "mv-foot" }, el("button", { type: "button", onclick: close }, "Close"), skipBtn, importBtn),
+			el("div", { class: "mv-foot" }, el("button", { type: "button", onclick: close }, "Close"), readOnly ? null : skipBtn, readOnly ? null : importBtn),
 		].filter(Boolean));
 	}
 

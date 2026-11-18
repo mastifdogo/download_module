@@ -21,7 +21,7 @@ const CHUNK_SIZE = 512 * 1024; // bytes; base64 makes it ~700 KB, under Ledger's
 const STALE_UPLOAD_HOURS = 24;
 const NAME_RE = /^[^\u0000-\u001f/\\]{1,255}$/;
 const FILE_COLUMNS = `id, name, content_type, size_bytes, sha256, status, source_url, note, received_by, received_at,
-	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, account_code, (mail_features IS NOT NULL) AS learnable, storage_path, document_id, document_added_here, updated_at`;
+	sent_to, sent_link, sent_by, sent_at, sent_file_id, origin, origin_detail, account_code, (mail_features IS NOT NULL) AS learnable, mail_folder, mail_uid, storage_path, document_id, document_added_here, updated_at`;
 const CLIENT_ORIGINS = ["", "camera", "upload", "app"]; // what the page, the extension and the phone app may say; email and scanner are set here
 // The phone app (app/ in this repository), published with each release of the module.
 const APP_REPO = "mastifdogo/download_module";
@@ -346,14 +346,14 @@ export default async function register(ctx) {
 	}
 
 	/** Stores a whole file (from email, the scanner, an approved extraction) in the inbox → its id. */
-	async function saveFile(name, type, data, { origin = "", detail = "", note = "", source_url = "", by, user, features = null, kind = "other" }) {
+	async function saveFile(name, type, data, { origin = "", detail = "", note = "", source_url = "", by, user, features = null, kind = "other", mail = null }) {
 		const p = await place(name, data, { kind, note, user });
 		let rows;
 		try {
 			({ rows } = await q(
-				`INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail, mail_features, storage_path, document_id, document_added_here)
-				 VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $10::text[], $11, $12, $13) RETURNING id`,
-				[name.slice(0, 255), String(type).slice(0, 200), data.length, createHash("sha256").update(data).digest("hex"), source_url, note.slice(0, 1000), by, origin, detail.slice(0, 200), features, p.storage_path, p.document_id, p.document_added_here],
+				`INSERT INTO ${T("files")} (name, content_type, size_bytes, sha256, status, source_url, note, received_by, origin, origin_detail, mail_features, storage_path, document_id, document_added_here, mail_folder, mail_uid)
+				 VALUES ($1, $2, $3, $4, 'new', $5, $6, $7, $8, $9, $10::text[], $11, $12, $13, $14, $15) RETURNING id`,
+				[name.slice(0, 255), String(type).slice(0, 200), data.length, createHash("sha256").update(data).digest("hex"), source_url, note.slice(0, 1000), by, origin, detail.slice(0, 200), features, p.storage_path, p.document_id, p.document_added_here, String(mail?.folder ?? "").slice(0, 300), String(mail?.uid ?? "").slice(0, 300)],
 			));
 		} catch (err) {
 			await unplace(p);
@@ -1035,7 +1035,7 @@ export default async function register(ctx) {
 	// Email (lib/mail.mjs)
 	// ---------------------------------------------------------------------
 
-	registerMail(ctx, { q, T, saveFile, maxBytes: async () => (await options()).maxBytes, syncNotice, learnKept });
+	registerMail(ctx, { q, T, saveFile, maxBytes: async () => (await options()).maxBytes, syncNotice, learnKept, getFile, fileBytes });
 
 	// ---------------------------------------------------------------------
 	// Network scanner (lib/escl.mjs): set up by an admin, used by everyone. Scans run in the
