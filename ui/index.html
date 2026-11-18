@@ -18,1231 +18,179 @@
 		}
 	}
 	* { box-sizing: border-box; }
-	body { margin: 0; padding: 1rem 1.25rem 3rem; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, sans-serif; }
-	h2 { font-size: 1.05rem; margin: 1.25rem 0 0.5rem; }
+	body { margin: 0; padding: 1rem 1.25rem 2.5rem; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; overflow-wrap: break-word; }
+	main { max-width: 44rem; }
+	h1 { font-size: 1.4rem; line-height: 1.25; margin: 0 0 0.5rem; }
+	h2 { font-size: 1.05rem; margin: 1.75rem 0 0.5rem; }
+	p { margin: 0.5rem 0; }
+	a { color: var(--accent); }
 	.muted { color: var(--muted); }
 	.small { font-size: 13px; }
-	.panel { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 0.9rem 1rem; }
-	.row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
-	.spacer { flex: 1; }
-	label.inline { display: flex; align-items: center; gap: 0.4rem; }
-	select, input { padding: 0.35rem 0.55rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: inherit; font: inherit; min-width: 0; }
-	input[type="checkbox"] { padding: 0; }
-	.btn { padding: 0.35rem 0.75rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
-	.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-	.btn.danger { color: var(--bad); }
-	.btn:disabled { opacity: 0.5; cursor: default; }
-	a.btn { text-decoration: none; display: inline-block; }
-	table { width: 100%; border-collapse: collapse; }
-	th, td { text-align: left; padding: 0.45rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-	th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 600; }
-	td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
-	tr.selected td { background: var(--panel); }
-	.name { overflow-wrap: anywhere; font-weight: 500; }
-	.pill { display: inline-block; padding: 0 0.45rem; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
-	.pill.new { background: var(--warn-bg); color: var(--warn); }
-	.pill.sent { background: var(--good-bg); color: var(--good); }
-	.bad { color: var(--bad); }
-	.btn.root { border-color: var(--bad); font-weight: 600; }
-	.root-mark { color: #fff; background: var(--bad); border-radius: 999px; padding: 0 0.5rem; font-size: 12px; font-weight: 700; align-self: center; margin-left: auto; }
-	.review-note { margin-top: 0.3rem; color: var(--warn); }
-	.review-wrap { max-height: 60vh; overflow: auto; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
-	table.review th, table.review td { padding: 0.2rem 0.3rem; }
-	table.review input { width: 100%; padding: 0.2rem 0.35rem; font-size: 13px; }
-	table.review .cell-date { min-width: 6.8rem; }
-	table.review .cell-desc { min-width: 9rem; }
-	table.review .cell-num { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
-	.small-btn { padding: 0.1rem 0.45rem; }
-	.tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid var(--border); margin: -0.25rem 0 0.9rem; }
-	.tab { flex: 1; padding: 0.6rem 0.5rem; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
-	.tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
-	.btn.big { padding: 0.7rem 1rem; font-size: 16px; }
-	.scan-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-	.scan-actions label { flex: 1 1 10rem; text-align: center; }
-	.visually-hidden { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; pointer-events: none; }
-	.scan-pages { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: 0.6rem; margin-top: 0.9rem; }
-	.scan-page { position: relative; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel); }
-	.scan-page img { display: block; width: 100%; height: 10rem; object-fit: contain; }
-	.scan-page .cap { display: flex; justify-content: space-between; align-items: center; padding: 0.2rem 0.4rem; font-size: 12px; color: var(--muted); }
-	label.stacked { display: flex; flex-direction: column; gap: 0.2rem; font-size: 13px; color: var(--muted); }
-	label.stacked input { font-size: 16px; color: var(--text); }
-	.pill.archived { background: var(--panel); color: var(--muted); border: 1px solid var(--border); }
-	.actions { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.4rem; }
-	.forward { margin-top: 0.5rem; }
-	.look { margin-bottom: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem; }
-	.look summary { cursor: pointer; color: var(--muted); }
-	.look iframe { display: block; width: 100%; height: min(60vh, 36rem); margin-top: 0.3rem; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
-	.look img { display: block; max-width: 100%; max-height: 70vh; margin-top: 0.3rem; border: 1px solid var(--border); border-radius: 6px; }
+	table { width: 100%; max-width: 26rem; border-collapse: collapse; }
+	th, td { text-align: left; padding: 0.45rem 0.5rem 0.45rem 0; border-bottom: 1px solid var(--border); vertical-align: baseline; font-weight: 400; }
+	thead th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); font-weight: 600; }
+	td.num, th.num { text-align: right; padding-right: 0; font-variant-numeric: tabular-nums; white-space: nowrap; }
+	td.num { font-weight: 600; }
+	.note { margin: 0.75rem 0 0; padding: 0.55rem 0.75rem; border-radius: 6px; background: var(--panel); border: 1px solid var(--border); }
+	.note.good { background: var(--good-bg); border-color: transparent; color: var(--good); }
+	.note.warn { background: var(--warn-bg); border-color: transparent; color: var(--warn); }
+	.note.bad { border-color: var(--bad); color: var(--bad); }
+	ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: step; }
+	ol.steps > li { counter-increment: step; position: relative; padding: 0.7rem 0 0.7rem 2.4rem; border-bottom: 1px solid var(--border); }
+	ol.steps > li:last-child { border-bottom: 0; }
+	ol.steps > li::before { content: counter(step); position: absolute; left: 0; top: 0.7rem; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--panel); border: 1px solid var(--border); color: var(--muted); font-size: 13px; font-weight: 600; line-height: 1.5rem; text-align: center; }
+	ol.steps strong { display: block; }
+	ol.steps p { margin: 0.2rem 0 0; }
+	.state { font-size: 13px; font-weight: 600; }
+	.state.good { color: var(--good); }
+	.state.warn { color: var(--warn); }
+	.btn { display: inline-block; margin-top: 0.45rem; padding: 0.35rem 0.75rem; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: #fff; font: inherit; text-decoration: none; }
+	.btn.plain { background: transparent; color: var(--accent); border-color: var(--border); }
 	.hidden { display: none !important; }
-	#toast { position: fixed; right: 1rem; bottom: 1rem; max-width: 440px; padding: 0.6rem 0.9rem; border-radius: 6px; background: var(--text); color: var(--bg); display: none; white-space: pre-wrap; z-index: 10; }
-	#toast.error { background: var(--bad); color: #fff; }
-	ol { padding-left: 1.2rem; margin: 0.4rem 0; }
-	code { font-size: 13px; }
-	@media (max-width: 640px) {
-		body { padding: 0.75rem 0.75rem 3rem; }
-		table.stack > thead { display: none; }
-		table.stack, table.stack > tbody, table.review, table.review > tbody { display: block; width: 100%; }
-		table.stack > tbody > tr { display: flex; flex-wrap: wrap; gap: 0.2rem 0.6rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); }
-		table.stack > tbody > tr > td { border: 0; padding: 0; }
-		table.stack > tbody > tr > td.wide { flex-basis: 100%; min-width: 0; }
-		table.review > thead { display: none; }
-		table.review > tbody > tr { display: flex; flex-wrap: wrap; gap: 0.25rem; padding: 0.35rem; border-bottom: 1px solid var(--border); }
-		table.review > tbody > tr > td { border: 0; padding: 0; flex: 1 1 5rem; min-width: 0; }
-		table.review > tbody > tr > td.wide { flex-basis: 100%; order: 5; }
-		table.review > tbody > tr > td:last-child { flex: 0 0 auto; }
-		table.review input, table.review .cell-date, table.review .cell-desc, table.review .cell-num { min-width: 0; }
-		table.stack > tbody > tr > td.num { margin-left: auto; }
-		#toast { left: 0.75rem; right: 0.75rem; max-width: none; }
+	@media (max-width: 420px) {
+		body { padding: 0.75rem 0.75rem 2rem; }
+		ol.steps > li { padding-left: 2.1rem; }
 	}
 </style>
 </head>
 <body>
-<nav id="tabs" class="tabs" role="tablist">
-	<span id="root-mark" class="root-mark hidden" title="Ledger's root mode is on: deletions go through Ledger and can be put back from its Root log">Root</span>
-	<button class="tab" role="tab" data-tab="inbox" aria-selected="true">Inbox</button>
-	<button class="tab" role="tab" data-tab="scan" aria-selected="false">Scan</button>
-</nav>
+<main>
+	<h1>Import is now part of Auto sort</h1>
+	<p>Everything Import did (the inbox for files, email, the scanner, the camera, the browser extension and the phone app) now lives in the <strong>Auto sort</strong> module. This last version of Import takes nothing in any more. It keeps the files it holds safe in Ledger's Documents until Auto sort has brought them over.</p>
 
-<section id="tab-scan" class="hidden" role="tabpanel">
-	<details id="phone-app" class="small" style="margin-bottom:0.75rem">
-		<summary>Scan receipts with the Android app</summary>
-		<div class="panel" style="margin-top:0.4rem">
-			<p style="margin-top:0">The <strong>Ledger Import</strong> app finds the receipt in the camera by itself, turns it into a PDF, lets you pick the account and add a note (typed or spoken), and sends it to this inbox. With no connection it keeps receipts on the phone and sends them when it next reaches the server (or only on your own Wi-Fi, if you set that); until then a receipt can still be changed. It updates itself.</p>
-			<div class="actions"><a class="btn primary" id="app-apk" href="#" rel="noopener">Download the app (Android)</a></div>
-			<ol style="margin-bottom:0">
-				<li>Open this page on the phone and download the app, or send the link to the phone. Android asks once to allow installing from your browser.</li>
-				<li>In the app, enter this server's address (the one in the browser's address bar, e.g. <code id="app-server"></code>), your Ledger username and password.</li>
-				<li>With several organizations, choose in the app's Settings which one receipts go to.</li>
-				<li>Receipts arrive in the Inbox marked "phone app", with the account you chose.</li>
-			</ol>
-		</div>
-	</details>
-	<h2 style="margin-top:0">Scanner</h2>
-	<div id="scanner" class="panel small"><span class="muted">Looking for the scanner…</span></div>
-	<details id="bridge" class="small" style="margin-top:0.5rem">
-		<summary>Scanner plugged into a computer by USB?</summary>
-		<div class="panel" style="margin-top:0.4rem">
-			<p style="margin-top:0">A web page can't reach a USB scanner, so a small program on the computer it's plugged into (your PC, or the Ledger server itself) shares it with Import as a network scanner. Then it scans from here on any device, phones included.</p>
-			<div class="actions">
-				<a class="btn" href="scan-bridge/ledger-scan-bridge.ps1" download>Windows: ledger-scan-bridge.ps1</a>
-				<a class="btn" href="scan-bridge/ledger-scan-bridge.py" download>Mac and Linux: ledger-scan-bridge.py</a>
-			</div>
-			<ol style="margin-bottom:0">
-				<li><strong>Windows</strong> (uses Windows' own scanner support, nothing to install): the first time, right-click the Start button → <em>Terminal (Admin)</em>, go to the folder you saved it in (e.g. <code>cd Downloads</code>) and run <code>powershell -ExecutionPolicy Bypass -File .\ledger-scan-bridge.ps1</code>. It reserves its port and opens it in the firewall for your home network. Next times a normal window works.</li>
-				<li><strong>Mac and Linux</strong> (uses SANE): install it once (Mac: <code>brew install sane-backends</code>; Debian/Ubuntu: <code>sudo apt install sane-utils</code>), then run <code>python3 ledger-scan-bridge.py</code>.</li>
-				<li>It prints an address such as <code>http://192.168.1.25:8090/eSCL</code>. An admin enters it here (<em>Change scanner</em> → the address → <em>Use this address</em>). On the Ledger server itself, use <code>http://127.0.0.1:8090/eSCL</code>.</li>
-				<li>Leave the bridge running while you scan; start it again after a restart (or put it in the computer's startup items).</li>
-			</ol>
-		</div>
-	</details>
-
-	<div id="camera-box" class="hidden">
-	<h2>Camera</h2>
-	<p class="muted small" style="margin-top:0">Photograph a receipt or bill. Several photos become the pages of one PDF, saved to the inbox, from where you can send it on or have the AI read it.</p>
-	<div class="scan-actions">
-		<label class="btn primary big">Take a photo<input id="scan-camera" type="file" accept="image/*" capture="environment" class="visually-hidden"></label>
-		<label class="btn big">Choose photos<input id="scan-pick" type="file" accept="image/*" multiple class="visually-hidden"></label>
-	</div>
-	<p id="scan-busy" class="muted small hidden">Preparing the photo…</p>
-	<div id="crop" class="panel hidden" style="margin-top:0.75rem">
-		<div id="crop-msg" class="small"></div>
-		<canvas id="crop-canvas" style="display:block;width:100%;margin-top:0.5rem;border-radius:6px;touch-action:none;background:#000"></canvas>
-		<label class="inline small" style="margin-top:0.5rem"><input type="checkbox" id="crop-clean"> Clean up: black print on white paper</label>
-		<div class="row" style="margin-top:0.6rem">
-			<button class="btn" id="crop-skip">Discard</button>
-			<button class="btn" id="crop-whole">Whole photo</button>
-			<span class="spacer"></span>
-			<button class="btn primary big" id="crop-use">Use this</button>
-		</div>
-	</div>
-	<div id="scan-pages" class="scan-pages"></div>
-	<div id="scan-save" class="panel hidden" style="margin-top:0.75rem">
-		<label class="stacked">File name<input id="scan-name" type="text" maxlength="255"></label>
-		<label class="stacked" style="margin-top:0.5rem">Note (optional)<input id="scan-note" type="text" maxlength="1000" placeholder="e.g. lunch with a client"></label>
-		<div class="row" style="margin-top:0.75rem">
-			<button class="btn" id="scan-clear">Start over</button>
-			<span class="spacer"></span>
-			<button class="btn primary big" id="scan-upload">Save to inbox</button>
-		</div>
-	</div>
-	</div>
-
-	<h2>Upload files</h2>
-	<p class="muted small" style="margin-top:0">From your computer or phone: a scan made with your scanner's own app (a USB scanner, say), a statement you downloaded, any file.</p>
-	<div class="scan-actions">
-		<label class="btn big">Choose files<input id="upload-files" type="file" multiple class="visually-hidden"></label>
-	</div>
-	<p id="upload-msg" class="muted small"></p>
-</section>
-
-<section id="tab-inbox" role="tabpanel">
-<div class="row">
-	<label class="inline">Show
-		<select id="filter">
-			<option value="new">Inbox</option>
-			<option value="sent">Sent</option>
-			<option value="archived">Archived</option>
-			<option value="all">All</option>
-		</select>
-	</label>
-	<span id="counts" class="muted small"></span>
-	<span class="spacer"></span>
-	<button class="btn" id="get-ext">Get the browser extension</button>
-</div>
-
-<div id="mail" class="row small hidden" style="margin-top:0.5rem"></div>
-<div id="training" class="panel small hidden" style="margin-top:0.5rem"></div>
-
-<div id="ext" class="panel hidden" style="margin-top:0.75rem">
-	<strong>Send to Ledger</strong>: a Chrome and Firefox extension that sends files from any website straight into this inbox (or to Auto sort), without saving them to your computer. Right-click a download link and choose <em>Send to Ledger…</em>, or drop a file on its toolbar button.
-	<div class="row" style="margin:0.6rem 0"><button class="btn primary" id="dl-ext">Download the extension (.zip)</button><span class="muted small" id="ext-msg"></span></div>
-	<ol class="small">
-		<li><strong>Chrome, Edge, Brave:</strong> unzip it, open <code>chrome://extensions</code>, turn on <em>Developer mode</em>, choose <em>Load unpacked</em> and pick the unzipped folder.</li>
-		<li><strong>Firefox:</strong> open <code>about:debugging#/runtime/this-firefox</code> → <em>Load Temporary Add-on…</em> → pick <code>manifest.json</code> in the unzipped folder (until Firefox restarts; to keep it, sign it for yourself on addons.mozilla.org, see the README).</li>
-		<li>Click the extension's toolbar button. It already knows this Ledger (<code id="ext-url"></code>): press <em>Allow and continue</em> and accept the browser's question. That's all.</li>
-		<li><strong>Updating it later:</strong> unzip the new download over the same folder and press <em>Reload</em> on the extensions page. Loading it from a new folder makes the browser treat it as a new extension that has to be allowed again.</li>
-	</ol>
-</div>
-
-<div class="table-wrap" style="margin-top:0.75rem">
-	<table id="files" class="stack">
-		<thead><tr><th>File</th><th class="num">Size</th><th>From</th><th>Received</th><th>Status</th></tr></thead>
-		<tbody></tbody>
+	<h2>Where things stand<span id="org"></span></h2>
+	<table>
+		<thead><tr><th>Import's files</th><th class="num">Number</th></tr></thead>
+		<tbody>
+			<tr><td>Held by Import</td><td class="num" id="n-files">…</td></tr>
+			<tr><td>Already in Ledger's Documents</td><td class="num" id="n-docs">…</td></tr>
+			<tr><td>Still to move there</td><td class="num" id="n-move">…</td></tr>
+			<tr><td>Missing</td><td class="num" id="n-missing">…</td></tr>
+			<tr id="row-stray" class="hidden"><td>Other files left in Import's storage, being filed too</td><td class="num" id="n-stray"></td></tr>
+		</tbody>
 	</table>
-</div>
-<p id="empty" class="muted hidden">Nothing here. Files arrive here from the Send to Ledger browser extension, from email, and from the Scan tab (scanner, phone camera, upload).</p>
-</section>
+	<p id="summary" class="note">Looking…</p>
+	<p id="missing-note" class="small muted hidden"></p>
+	<p id="also" class="small muted hidden"></p>
+	<p class="small muted">Each organization has its own files: these numbers are for the one you are working in.</p>
 
-<div id="toast"></div>
+	<h2>What to do</h2>
+	<ol class="steps">
+		<li>
+			<strong>Update Auto sort to <span class="needs">0.17.0</span> or newer</strong>
+			<p>Under Settings → Modules, press <em>Update modules now</em>.</p>
+			<p id="autosort" class="state"></p>
+		</li>
+		<li>
+			<strong>Open Auto sort and press “Bring over Import's files”</strong>
+			<p>An admin does this, once in each organization. Auto sort takes over the inbox, what the email check has seen and learned, and the AI extractions. Nothing is deleted from Import.</p>
+			<a class="btn" href="/apps/categorizer" target="_top">Open Auto sort</a>
+		</li>
+		<li>
+			<strong>Remove Import</strong>
+			<p>Under Settings → Modules, once every organization has brought its files over. Removing a module keeps its data.</p>
+			<a class="btn plain" href="/settings/modules" target="_top">Open Settings → Modules</a>
+		</li>
+	</ol>
 
-<script src="receipt.js"></script>
-<script src="mail-view.js"></script>
+	<h2>Browser extension and phone app</h2>
+	<p>The <em>Send to Ledger</em> extension and the Android app that came with Import no longer reach it. Install the new ones from the Auto sort page; they send files straight to Auto sort.</p>
+	<p id="version" class="small muted"></p>
+</main>
+
 <script>
-	// Served by Ledger at /m/downloads/, so API calls carry the user's login.
-	const call = (url, opts = {}) =>
-		fetch(url, { ...opts, headers: opts.body instanceof FormData ? {} : { "Content-Type": "application/json", ...(opts.headers || {}) } }).then(async (r) => {
-			if (!r.ok) {
-				const e = (await r.json().catch(() => ({}))).error;
-				throw Object.assign(new Error(e?.details?.map((d) => (d.field ? `${d.field}: ${d.message}` : d.message)).join("; ") || e?.message || r.statusText), { status: r.status });
-			}
-			return r.status === 204 ? null : r.json();
+	// Served by Ledger at /m/downloads/, so these calls carry the user's login. Read-only.
+	const get = (path) =>
+		fetch(path, { headers: { Accept: "application/json" } }).then(async (r) => {
+			if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error?.message || r.statusText);
+			return r.json();
 		});
-	const api = (path, opts) => call(`/api/v1/m/downloads${path}`, opts);
 	const $ = (id) => document.getElementById(id);
-	const el = (tag, attrs = {}, ...kids) => {
-		const n = document.createElement(tag);
-		for (const [k, v] of Object.entries(attrs)) {
-			if (k === "class") n.className = v;
-			else if (k.startsWith("on")) n[k] = v;
-			else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : v);
-		}
-		n.append(...kids.filter((k) => k != null && k !== false));
-		return n;
+	const text = (id, value) => ($(id).textContent = value); // never innerHTML with data
+	const files = (n) => `${n.toLocaleString()} ${n === 1 ? "file" : "files"}`;
+	const note = (id, cls, value) => {
+		$(id).className = cls;
+		$(id).textContent = value;
 	};
-	let toastTimer;
-	function toast(msg, isError = false) {
-		const t = $("toast");
-		t.textContent = msg;
-		t.className = isError ? "error" : "";
-		t.style.display = "block";
-		clearTimeout(toastTimer);
-		toastTimer = setTimeout(() => (t.style.display = "none"), isError ? 8000 : 4000);
-	}
-	const fail = (e) => toast(e.message || String(e), true);
-	const size = (b) => (b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(b < 10240 ? 1 : 0)} KB` : `${(b / 1048576).toFixed(1)} MB`);
-	const STATEMENT_RE = /\.(csv|ofx|qfx|qbo)$/i;
-	const BILL_RE = /\.(pdf|eml)$/i;
-	const goLedger = (path) => (window.top.location.href = path); // the page is shown in a frame inside Ledger
 
-	// ------------------------------------------------------------- Auto sort (optional)
-	let autosort = null; // { accounts } when the Auto sort module is installed, false when not
-	async function checkAutosort() {
-		if (autosort !== null) return autosort;
-		try {
-			const { data } = await call("/api/v1/m/categorizer/accounts");
-			autosort = { accounts: data.filter((a) => a.type === "asset" || a.type === "liability") };
-		} catch {
-			autosort = false;
-		}
-		return autosort;
+	/** Whether version a (x.y.z) is at least b. */
+	function atLeast(a, b) {
+		const x = String(a).split(".").map(Number);
+		const y = String(b).split(".").map(Number);
+		for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+		return true;
 	}
 
-	// ------------------------------------------------------------- other modules that take files (ctx.files, Ledger ≥ 0.11.0)
-	let targets = null; // [{ id, name, accepts }]
-	let accounts = null; // Ledger's bank and card accounts, for statements handed to a module
-	const KIND_LABEL = { statement: "statement", bill: "bill", receipt: "receipt", transaction: "transaction list", customer: "customer list", vendor: "vendor list", entity: "customer and vendor list" };
-	const KIND_FITS = {
-		statement: /\.(csv|ofx|qfx|qbo|pdf|txt)$/i,
-		transaction: /\.(csv|tsv|json|xml|ofx|qfx|qbo)$/i,
-		bill: /\.(pdf|eml|png|jpe?g|webp|heic|gif)$/i,
-		receipt: /\.(pdf|eml|png|jpe?g|webp|heic|gif)$/i,
-		customer: /\.(csv|tsv)$/i,
-		vendor: /\.(csv|tsv)$/i,
-		entity: /\.(csv|tsv)$/i,
-	};
-	async function checkTargets() {
-		if (targets !== null) return targets;
-		try { targets = (await api("/targets")).data; } catch { targets = []; }
-		return targets;
-	}
-	/** Ledger's bank and card accounts (asset and liability) for statements, with their tags and sub-accounts. */
-	async function bankAccounts() {
-		if (accounts === null) {
-			// Not clearing accounts (Ledger 0.20): in-between accounts modules make, never where a statement belongs.
-			try { accounts = (await call("/api/v1/accounts")).data.filter((a) => (a.type === "asset" || a.type === "liability") && a.kind !== "clearing"); } catch { accounts = []; }
+	function showAutoSort(s, mod) {
+		const needs = s.auto_sort.needs;
+		for (const el of document.querySelectorAll(".needs")) el.textContent = needs;
+		const name = mod?.name || s.auto_sort.name;
+		if (mod?.state === "failed") return note("autosort", "state warn", `${name} is installed but isn't running${mod.message ? `: ${mod.message}` : "."}`);
+		if (mod?.version && (mod.state === "running" || s.auto_sort.installed)) {
+			return atLeast(mod.version, needs)
+				? note("autosort", "state good", `${name} ${mod.version} is installed: this step is done.`)
+				: note("autosort", "state warn", `${name} ${mod.version} is installed: it needs updating.`);
 		}
-		return accounts;
-	}
-	const KIND_NAME = { chequing: "chequing", savings: "savings", credit_card: "credit card" };
-	/**
-	 * The account picker's choices: accounts tagged chequing, savings or credit card first (Ledger 0.16+),
-	 * then the rest as a tree, sub-accounts indented under their parent (Ledger 0.15+). Older Ledger: one list.
-	 */
-	function accountChoices(list, option) {
-		const tagged = list.filter((a) => KIND_NAME[a.kind]);
-		const byParent = new Map();
-		const codes = new Set(list.map((a) => a.code));
-		for (const a of list) {
-			const p = a.parent_code && codes.has(a.parent_code) ? a.parent_code : "";
-			(byParent.get(p) ?? byParent.set(p, []).get(p)).push(a);
-		}
-		const tree = [];
-		const walk = (p, depth) => { for (const a of (byParent.get(p) ?? []).sort((x, y) => x.code.localeCompare(y.code))) { tree.push([a, depth]); if (depth < 6) walk(a.code, depth + 1); } };
-		walk("", 0);
-		const indented = tree.map(([a, depth]) => option(a, depth));
-		if (tagged.length === 0) return indented;
-		return [
-			el("optgroup", { label: "Bank and card accounts" }, ...tagged.sort((x, y) => x.code.localeCompare(y.code)).map((a) => option(a, 0))),
-			el("optgroup", { label: "All asset and liability accounts" }, ...indented),
-		];
-	}
-	/** [value, label] choices for handing this file to another module. */
-	function moduleOptions(f) {
-		const out = [];
-		for (const t of targets || []) {
-			const fit = t.accepts.filter((k) => KIND_FITS[k]?.test(f.name));
-			// Customer and vendor lists only fit list files (CSV); everything else falls back to what the module takes.
-			for (const k of fit.length ? fit : t.accepts.filter((k) => !["customer", "vendor", "entity"].includes(k))) out.push([`mod:${t.id}:${k}`, `${t.name}: ${KIND_LABEL[k] || k}`]);
-		}
-		return out;
+		if (s.auto_sort.installed) return note("autosort", "state", `${name} is installed. Check its version under Settings → Modules.`);
+		note("autosort", "state warn", "Auto sort isn't installed in this Ledger yet: add mastifdogo/auto-sort_module under Settings → Modules.");
 	}
 
-	// ------------------------------------------------------------- AI extraction (Settings → LLM API)
-	let ai = null; // { configured, allowed, reads_pdf, reads_images, model }
-	const IMAGE_RE = /\.(jpe?g|png|gif|webp)$/i;
-	const TEXT_RE = /\.(txt|text|ofx|qfx|qbo|html?|xml|json|tsv|eml|md|prn)$/i;
-	/** "pdf" or "text" when the AI could extract data from the file (it isn't a CSV already), else null. */
-	function extractable(f) {
-		const type = (f.content_type || "").toLowerCase();
-		if (/\.csv$/i.test(f.name) || type.startsWith("text/csv")) return null;
-		if (/\.pdf$/i.test(f.name) || type.startsWith("application/pdf")) return "pdf";
-		if (IMAGE_RE.test(f.name) || /^image\/(jpeg|png|gif|webp)/.test(type)) return "image";
-		if (TEXT_RE.test(f.name) || /^(text\/|application\/(json|xml)|message\/rfc822)/.test(type)) return "text";
-		return null;
-	}
-	async function checkAi() {
-		if (ai !== null) return ai;
-		try { ai = await api("/ai"); } catch { ai = { configured: false, allowed: false, reads_pdf: false, reads_images: false }; }
-		return ai;
-	}
+	let last = "";
+	let same = 0;
+	let timer = null;
 
-	// ------------------------------------------------------------- inbox
-	let files = [];
-	let openId = null;
 	async function load() {
-		const r = await api(`/files?status=${$("filter").value}`);
-		files = r.data;
-		const c = r.counts;
-		$("counts").textContent = `${c.new || 0} in the inbox · ${c.sent || 0} sent · ${c.archived || 0} archived`;
-		$("empty").classList.toggle("hidden", files.length > 0);
-		$("files").classList.toggle("hidden", files.length === 0);
-		await Promise.all([checkAutosort(), checkAi(), checkTargets(), loadMail(), api("/me").then((x) => (me = x), () => (me ??= { role: "viewer" }))]);
-		$("root-mark").classList.toggle("hidden", !me?.root);
-		await bankAccounts(); // for statements: sent to a module, or filed in Documents
-		render();
-	}
-
-	function render() {
-		$("files").tBodies[0].replaceChildren(
-			...files.map((f) =>
-				el("tr", { class: openId === f.id ? "selected" : "", id: `file-${f.id}` },
-					el("td", { class: "wide" },
-						el("div", { class: "name" }, f.name),
-						f.note ? el("div", { class: "muted small" }, f.note) : null,
-						f.account_code ? el("div", { class: "muted small" }, "Account chosen on the phone: ", el("strong", {}, f.account_code)) : null,
-						f.document && !f.missing ? el("div", { class: "muted small" }, `In Ledger's Documents${f.document.kind !== "other" ? ` as ${f.document.kind === "invoice" ? "an invoice" : `a ${f.document.kind}`}` : ""}${f.document.account_code ? ` for ${f.document.account_code}${f.document.account_name ? ` · ${f.document.account_name}` : ""}` : ""}${f.document.reconciled ? ", reconciled" : ""}`) : null,
-						f.status === "sent" ? el("div", { class: "small" }, "Sent to ", f.sent_link ? el("a", { href: "#", onclick: (e) => { e.preventDefault(); goLedger(f.sent_link); } }, f.sent_to) : f.sent_to, f.sent_by ? ` by ${f.sent_by}` : "") : null,
-						f.handoff ? el("div", { class: `small ${f.handoff.status === "rejected" ? "bad" : "muted"}` }, HANDOFF[f.handoff.status] || f.handoff.status, f.handoff.result ? `: ${f.handoff.result}` : "") : null,
-						actions(f),
-						f.pending_extraction && reviewId !== f.pending_extraction ? el("div", { class: "small review-note" }, "AI extracted data from this file. ", el("a", { href: "#", onclick: (e) => { e.preventDefault(); openReview(f.pending_extraction); } }, "Check and approve it")) : null,
-						reviewId && review && review.file_id === f.id ? reviewPanel() : null,
-						deletingId === f.id ? deletePanel(f) : null,
-						openId === f.id && !(review && review.file_id === f.id) ? forwardPanel(f) : null,
-					),
-					el("td", { class: "num" }, size(Number(f.size_bytes))),
-					el("td", { class: "small" }, fromCell(f)),
-					el("td", { class: "small" }, new Date(f.received_at).toLocaleString(), el("div", { class: "muted" }, f.received_by)),
-					el("td", {}, el("span", { class: `pill ${f.status}` }, f.status === "new" ? "In inbox" : f.status === "sent" ? "Sent" : "Archived")),
-				),
-			),
-		);
-	}
-
-	function fromCell(f) {
-		if (f.source_url) {
-			let host = f.source_url;
-			try { host = new URL(f.source_url).host; } catch {} // not an address after all: shown as it is
-			return el("span", { title: f.source_url }, host);
+		clearTimeout(timer);
+		let s;
+		try {
+			s = await get("/api/v1/m/downloads/status");
+		} catch (err) {
+			note("summary", "note bad", `Couldn't read Import's state: ${err.message}`);
+			timer = setTimeout(load, 15000);
+			return;
 		}
-		const what = { email: "email", scanner: "scanner", camera: "phone camera", upload: "uploaded", app: "phone app" }[f.origin];
-		if (!what) return el("span", { class: "muted" }, "dropped file");
-		return el("span", { title: f.origin_detail || what }, what, f.origin_detail ? el("div", { class: "muted" }, f.origin_detail) : null);
-	}
+		// Ledger's own list of modules says which Auto sort is installed; fine without it.
+		const mod = await get("/api/v1/modules").then((m) => (m.modules || []).find((x) => x.id === "categorizer") || null, () => null);
 
-	// ------------------------------------------------------------- "+ New account…" (Ledger ≥ 0.11.3 opens its New account dialog)
-	let me = null; // { role, ledger }
-	const NEW_ACCOUNT = "\u0000new";
-	const atLeast = (v, want) => { const a = String(v || "0").split(".").map(Number), b = want.split(".").map(Number); for (let i = 0; i < 3; i++) if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i]; return true; };
-	const canAddAccount = () => !!me && me.role !== "viewer" && atLeast(me.ledger, "0.11.3");
-	function newAccount(defaults = {}) {
-		const id = crypto.randomUUID();
-		return new Promise((resolve) => {
-			addEventListener("message", function on(e) {
-				if (e.origin !== location.origin || e.data?.type !== "ledger-new-account-result" || e.data.id !== id) return;
-				removeEventListener("message", on);
-				resolve(e.data.account); // the account, or null (cancelled)
-			});
-			parent.postMessage({ type: "ledger-new-account", id, defaults }, location.origin);
-		});
-	}
+		text("org", s.organization ? ` in ${s.organization}` : "");
+		text("n-files", s.files.toLocaleString());
+		text("n-docs", s.in_documents.toLocaleString());
+		text("n-move", s.to_move.toLocaleString());
+		text("n-missing", s.missing.toLocaleString());
+		text("n-stray", s.stray.toLocaleString());
+		$("row-stray").classList.toggle("hidden", s.stray === 0);
+		text("version", `Import ${s.version}`);
 
-	// ------------------------------------------------------------- deleting an email file teaches the email check
-	let deletingId = null;
-	function deletePanel(f) {
-		const del = async (learn) => {
-			try {
-				const r = await api(`/files/${f.id}${learn ? "?learn=1" : ""}`, { method: "DELETE" });
-				deletingId = null;
-				toast(r?.learned ? `Deleted. Email import will skip files like ${f.name} from ${f.origin_detail || "this sender"}.` : `Deleted ${f.name}.`);
-				await load();
-			} catch (e) { fail(e); }
-		};
-		return el("div", { class: "panel forward small" },
-			el("div", {}, `Delete ${f.name}?`),
-			el("div", { class: "muted", style: "margin-top:0.2rem" }, `It came from email${f.origin_detail ? ` (${f.origin_detail})` : ""}. "Delete and learn" teaches the email check that files like this aren't wanted, so later ones from this sender are skipped. Use "Just delete" for a duplicate or a one-off.`),
-			el("div", { class: "actions" },
-				el("button", { class: "btn danger", onclick: () => del(true) }, "Delete and learn"),
-				el("button", { class: "btn", onclick: () => del(false) }, "Just delete"),
-				el("button", { class: "btn", onclick: () => { deletingId = null; render(); } }, "Cancel")),
-		);
-	}
-
-	const HANDOFF = { new: "Waiting for the module", accepted: "Being processed", done: "Done", rejected: "Rejected" };
-
-	function actions(f) {
-		const b = (text, fn, cls = "btn") => el("button", { class: cls, onclick: fn }, text);
-		if (f.missing) {
-			// After a restore from a dump file, which brings back only the tables: the row is back, the file isn't.
-			return el("div", {},
-				el("div", { class: "small bad" }, "The file itself is missing (removed on Ledger's Documents page, or a restore from a dump file, which brings back only the list). Delete it here, or restore a full backup."),
-				el("div", { class: "actions" }, b("Delete", () => confirm(`Delete ${f.name} from the list?`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail), "btn danger")));
-		}
-		return el("div", { class: "actions" },
-			b("Send…", () => { openId = openId === f.id ? null : f.id; render(); }, "btn primary"),
-			viewable(f) ? b("Open", () => window.open(f.url, "_blank", "noopener")) : null,
-			isEml(f) ? b("View email", () => MailView.open({ file: f.id })) : null,
-			b("Download", () => download(f)),
-			f.status === "archived" ? b("Back to inbox", () => patch(f, { status: "new" })) : b("Archive", () => patch(f, { status: "archived" })),
-			me?.root
-				? b("Root: delete", () => confirm(`Root mode: delete ${f.name}? It can be put back from Ledger's Root log.`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail), "btn danger root")
-				: null,
-			me?.root ? null : b("Delete", () => {
-				if (!f.learnable) return confirm(`Delete ${f.name}?`) && api(`/files/${f.id}`, { method: "DELETE" }).then(load, fail);
-				deletingId = deletingId === f.id ? null : f.id;
-				render();
-			}, "btn danger"),
-		);
-	}
-
-	// ------------------------------------------------------------- looking at a file (and its email) before sending it on
-	const isEml = (f) => /^message\/rfc822\b/i.test(f.content_type || "") || /\.eml$/i.test(f.name);
-	const hasEmail = (f) => isEml(f) || !!f.mail_uid;
-	const previews = new Map(); // file id → its preview, kept across re-renders so a PDF isn't loaded again
-	function previewOf(f) {
-		if (!viewable(f)) return null;
-		const key = `${f.id} ${f.url}`;
-		if (previews.has(key)) return previews.get(key);
-		const image = /^image\//.test(f.content_type || "") || IMAGE_RE.test(f.name);
-		const det = el("details", { open: true },
-			el("summary", {}, "Preview"),
-			image ? el("img", { src: f.url, alt: f.name, loading: "lazy" }) : el("iframe", { src: f.url, title: `Preview of ${f.name}`, loading: "lazy" }));
-		previews.set(key, det);
-		return det;
-	}
-	/** The top of the Send panel: the document itself, and the email it is or came from. */
-	function lookPanel(f) {
-		const preview = previewOf(f);
-		const email = hasEmail(f)
-			? el("div", { class: "row" },
-				el("button", { class: "btn", onclick: () => MailView.open({ file: f.id }) }, isEml(f) ? "View the email" : "View the email it came from"),
-				el("span", { class: "muted" }, isEml(f) ? "Read it before sending it on." : `From ${f.origin_detail || "email"}: read it before sending this file on.`))
-			: null;
-		if (!preview && !email) return null;
-		return el("div", { class: "look" }, preview, email);
-	}
-
-	function forwardPanel(f) {
-		const box = el("div", { class: "panel forward small" });
-		const look = lookPanel(f);
-		if (look) box.append(look);
-		const opts = moduleOptions(f);
-		// Auto sort's own routes, until it takes files through ctx.files (then it's listed above instead).
-		if (autosort && !(targets || []).some((t) => t.id === "categorizer")) {
-			if (STATEMENT_RE.test(f.name)) opts.push(["statement", "Auto sort: statement (review and post its transactions)"]);
-			if (BILL_RE.test(f.name)) opts.push(["bill", "Auto sort: bill or receipt"]);
-		}
-		if (/\.csv$/i.test(f.name)) opts.push(["ledger-file", "Ledger's CSV files (journal import)"]);
-		// A PDF or scan is in Ledger's Documents: say what it is there, where Reconcile and modules pick it up.
-		if (f.document_id != null) for (const k of ["receipt", "statement", "invoice"]) opts.push([`doc:${k}`, `Ledger's Documents: file it as ${k === "invoice" ? "an invoice or bill" : `a ${k}`}`]);
-		const kind = extractable(f);
-		let aiHint = null;
-		if (kind && ai) {
-			const can = kind === "text" ? ai.configured : kind === "image" ? ai.reads_images : ai.reads_pdf || ai.reads_images;
-			if (!ai.configured && !ai.reads_images) aiHint = "To extract its transactions into a CSV with AI, an admin can set up an LLM connection under Settings → LLM API.";
-			else if (!ai.allowed) aiHint = "To extract its transactions into a CSV with AI, an admin can allow Import under Settings → LLM API.";
-			else if (!can) aiHint = kind === "text" ? "There's no LLM connection for text under Settings → LLM API, so its transactions can't be extracted here." : "There's no LLM connection for images and documents under Settings → LLM API, so its transactions can't be extracted here.";
-			else opts.push(["extract", "Extract data: a CSV of its transactions, read by AI"]);
-		}
-		if (opts.length === 0) {
-			box.append(
-				autosort === false && (STATEMENT_RE.test(f.name) || BILL_RE.test(f.name))
-					? "Install the Auto sort module (Settings → Modules: mastifdogo/auto-sort_module) to send statements and bills there. You can download the file meanwhile."
-					: "There's nowhere in Ledger to send this kind of file yet. Download it, or archive it.",
-			);
-			if (aiHint) box.append(el("div", { class: "muted", style: "margin-top:0.4rem" }, aiHint));
-			return box;
-		}
-		const dest = el("select", {}, ...opts.map(([v, t]) => el("option", { value: v }, t)));
-		const acctList = accounts?.length ? accounts : autosort ? autosort.accounts : [];
-		const acctOption = (a, depth = 0) => el("option", { value: a.code }, `${"\u2003".repeat(depth)}${a.code} · ${a.name} (${a.kind ? KIND_NAME[a.kind] || a.kind : a.type}, ${a.currency})`);
-		const account = el("select", {}, el("option", { value: "" }, "Choose the bank or card account…"), ...accountChoices(acctList, acctOption), canAddAccount() ? el("option", { value: NEW_ACCOUNT }, "+ New account…") : null);
-		const flipLabel = el("label", { class: "inline" });
-		const flip = el("input", { type: "checkbox" });
-		flipLabel.append(flip, "Purchases show as positive amounts (flip signs)");
-		const stmt = el("div", { class: "row", style: "margin-top:0.4rem" }, account, flipLabel);
-		const pickFlip = () => (flip.checked = acctList.find((a) => a.code === account.value)?.type === "liability" && /\.csv$/i.test(f.name));
-		account.onchange = async () => {
-			if (account.value !== NEW_ACCOUNT) return pickFlip();
-			account.value = "";
-			const a = await newAccount({ type: "asset", currency: "CAD" });
-			if (!a) return;
-			if (a.type === "asset" || a.type === "liability") {
-				acctList.push(a);
-				account.insertBefore(acctOption(a), account.lastElementChild);
-				account.value = a.code;
-				pickFlip();
-			} else toast(`${a.code} · ${a.name} was created, but statements need a bank or card account (asset or liability).`, true);
-		};
-		const instructions = el("input", { type: "text", maxlength: "1000", placeholder: "Optional hints, e.g. “only the chequing account”", style: "flex:1;min-width:12rem" });
-		const ext = el("div", { style: "margin-top:0.4rem" },
-			el("div", { class: "row" }, instructions),
-			el("div", { class: "muted", style: "margin-top:0.3rem" }, "You'll check what the AI read, and correct it, before anything is created. When you approve, a CSV (Date, Description, Amount, Balance) lands in the inbox, ready to send on, and this file moves to Sent."),
-		);
-		const sync = () => {
-			const modStmt = /^mod:[^:]+:statement$/.test(dest.value) || dest.value === "doc:statement";
-			stmt.classList.toggle("hidden", dest.value !== "statement" && !modStmt);
-			flipLabel.classList.toggle("hidden", modStmt);
-			ext.classList.toggle("hidden", dest.value !== "extract");
-			go.textContent = dest.value === "extract" ? "Extract" : "Send";
-		};
-		dest.onchange = sync;
-		const go = el("button", { class: "btn primary", onclick: async () => {
-			go.disabled = true;
-			const label = go.textContent;
-			if (dest.value === "extract") go.textContent = "Reading… (up to a few minutes)";
-			try {
-				if (dest.value === "extract") await extract(f, instructions.value);
-				else if (dest.value.startsWith("mod:")) await handoff(f, dest.value, account.value);
-				else if (dest.value.startsWith("doc:")) await fileAs(f, dest.value.slice(4), account.value);
-				else await forward(f, dest.value, { account: account.value, flip: flip.checked });
-			} catch (e) { fail(e); } finally { go.disabled = false; go.textContent = label; }
-		} }, "Send");
-		sync();
-		box.append(el("div", { class: "row" }, el("label", { class: "inline" }, "To", dest)), stmt, ext, el("div", { style: "margin-top:0.5rem" }, go));
-		if (aiHint) box.append(el("div", { class: "muted", style: "margin-top:0.4rem" }, aiHint));
-		return box;
-	}
-
-	async function content(f) {
-		const c = await api(`/files/${f.id}/content`);
-		return { ...c, bytes: Uint8Array.from(atob(c.data), (ch) => ch.charCodeAt(0)) };
-	}
-
-	async function forward(f, dest, { account, flip }) {
-		const c = await content(f);
-		let to, link;
-		if (dest === "statement") {
-			if (!account) throw new Error("Choose the bank or card account the statement is for.");
-			const r = await call("/api/v1/m/categorizer/statements", { method: "POST", body: JSON.stringify({ filename: f.name, content: new TextDecoder().decode(c.bytes), account_code: account, flip_signs: flip }) });
-			to = `Auto sort statement #${r.id} (${r.transactions} transactions)`;
-			link = `/apps/categorizer?statement=${r.id}`;
-		} else if (dest === "bill") {
-			const r = await call("/api/v1/m/categorizer/bills/upload", { method: "POST", body: JSON.stringify({ filename: f.name, content_base64: c.data }) });
-			to = `Auto sort bill #${r.id}${r.vendor ? ` (${r.vendor})` : ""}`;
-			link = `/apps/categorizer?bill=${r.id}`;
+		const left = s.to_move + s.stray;
+		const now = `${s.in_documents}/${left}`;
+		same = now === last ? same + 1 : 0;
+		last = now;
+		if (left > 0) {
+			note("summary", same >= 5 ? "note warn" : "note", same >= 5
+				? `${files(left)} couldn't be moved into Ledger's Documents so far. Import keeps trying; Ledger's log says why.`
+				: `Moving ${files(left)} into Ledger's Documents… This page keeps itself up to date.`);
+		} else if (s.files === 0) {
+			note("summary", "note", "Import holds no files here, so there is nothing to move.");
 		} else {
-			const fd = new FormData();
-			fd.append("file", new Blob([c.bytes], { type: "text/csv" }), f.name);
-			await call("/api/v1/files", { method: "POST", body: fd });
-			to = "Ledger's CSV files";
-			link = "/files";
+			note("summary", "note good", s.missing === 0
+				? "Every file is in Ledger's Documents, ready for Auto sort to bring over."
+				: "Every file that could be found is in Ledger's Documents, ready for Auto sort to bring over.");
 		}
-		await api(`/files/${f.id}/sent`, { method: "POST", body: JSON.stringify({ to, link, ...(dest === "statement" ? { kind: "statement", account_code: account } : dest === "bill" ? { kind: "bill" } : {}) }) });
-		openId = null;
-		toast(`Sent: ${to}.`);
-		await load();
-	}
+		$("missing-note").classList.toggle("hidden", s.missing === 0);
+		text("missing-note", s.missing === 0 ? "" : `Missing: ${files(s.missing)} whose content was already gone before this update (for example after a restore from a dump file, which brings back only the tables). ${s.missing === 1 ? "Its entry stays as it is" : "Their entries stay as they are"}.`);
 
-	async function fileAs(f, kind, account) {
-		const r = await api(`/files/${f.id}/file-as`, { method: "POST", body: JSON.stringify({ kind, ...(kind === "statement" && account ? { account_code: account } : {}) }) });
-		openId = null;
-		toast(`Filed in ${r.sent_to}${kind === "statement" && account ? ` for account ${account}` : ""}.`);
-		await load();
-	}
+		const also = [
+			[s.also.extractions, "AI extraction", "AI extractions"],
+			[s.also.emails_seen, "email already looked at", "emails already looked at"],
+			[s.also.email_examples, "thing the email check learned", "things the email check learned"],
+		].filter(([n]) => n > 0).map(([n, one, many]) => `${n.toLocaleString()} ${n === 1 ? one : many}`);
+		$("also").classList.toggle("hidden", also.length === 0);
+		text("also", also.length ? `Also kept for Auto sort: ${also.join(", ")}.` : "");
 
-	async function handoff(f, value, account) {
-		const [, to, kind] = value.split(":");
-		const r = await api(`/files/${f.id}/handoff`, { method: "POST", body: JSON.stringify({ to, kind, ...(kind === "statement" && account ? { account_code: account } : {}) }) });
-		openId = null;
-		toast(`Sent: ${r.sent_to}.`);
-		await load();
+		showAutoSort(s, mod);
+		if (left > 0) timer = setTimeout(load, same >= 5 ? 30000 : 3000);
 	}
-
-	async function extract(f, instructions) {
-		const body = instructions.trim() ? { instructions: instructions.trim() } : {};
-		const r = await api(`/files/${f.id}/extract`, { method: "POST", body: JSON.stringify(body) });
-		openId = null;
-		review = r;
-		reviewId = r.id;
-		toast(`The AI read ${r.rows.length} transaction${r.rows.length === 1 ? "" : "s"}. Check them, then approve.`);
-		await load();
-	}
-
-	// ------------------------------------------------------------- reviewing what the AI read (nothing happens until approved)
-	let reviewId = null; // the extraction being reviewed
-	let review = null; // { id, file_id, rows, model, currency, ... }, rows edited in place
-	async function openReview(id) {
-		try {
-			review = await api(`/extractions/${id}`);
-			reviewId = id;
-			openId = null;
-			render();
-			document.getElementById(`file-${review.file_id}`)?.scrollIntoView({ block: "start" });
-		} catch (e) { fail(e); }
-	}
-	const closeReview = () => { review = null; reviewId = null; };
-
-	function reviewPanel() {
-		const r = review;
-		const input = (row, key, attrs) => el("input", { ...attrs, value: row[key], "aria-label": key, oninput: (e) => (row[key] = e.target.value) });
-		const body = el("tbody");
-		const draw = () => body.replaceChildren(...r.rows.map((row, i) => el("tr", {},
-			el("td", {}, input(row, "date", { type: "text", size: "10", placeholder: "YYYY-MM-DD", class: "cell-date" })),
-			el("td", { class: "wide" }, input(row, "description", { type: "text", class: "cell-desc", placeholder: "Description" })),
-			el("td", { class: "num" }, input(row, "amount", { type: "text", inputmode: "decimal", size: "9", class: "cell-num", placeholder: "Amount" })),
-			el("td", { class: "num" }, input(row, "balance", { type: "text", inputmode: "decimal", size: "9", class: "cell-num", placeholder: "Balance" })),
-			el("td", {}, el("button", { class: "btn small-btn", title: "Remove this row", "aria-label": "Remove row", onclick: () => { r.rows.splice(i, 1); draw(); } }, "×")),
-		)));
-		draw();
-		const approve = el("button", { class: "btn primary", onclick: async () => {
-			approve.disabled = true;
-			try {
-				const out = await api(`/extractions/${r.id}/approve`, { method: "POST", body: JSON.stringify({ rows: r.rows.map(({ date, description, amount, balance }) => ({ date, description, amount, balance: balance ?? "" })) }) });
-				closeReview();
-				toast(`Approved: ${out.transactions} transaction${out.transactions === 1 ? "" : "s"} in ${out.name}.`);
-				$("filter").value = "new";
-				openId = out.id; // open it, ready to send on
-				await load();
-				document.getElementById(`file-${out.id}`)?.scrollIntoView({ block: "center" });
-			} catch (e) { fail(e); approve.disabled = false; }
-		} }, "Approve and create the CSV");
-		const reject = el("button", { class: "btn danger", onclick: async () => {
-			try {
-				await api(`/extractions/${r.id}/reject`, { method: "POST", body: "{}" });
-				closeReview();
-				toast("Rejected. Nothing was created.");
-				await load();
-			} catch (e) { fail(e); }
-		} }, "Reject");
-		return el("div", { class: "panel forward small" },
-			el("div", {}, el("strong", {}, "Check what the AI read"), ` · ${r.rows.length} transactions${r.currency ? ` in ${r.currency}` : ""} · ${r.model}`),
-			el("div", { class: "muted", style: "margin:0.2rem 0 0.4rem" }, "Correct anything wrong, remove rows that aren't transactions, then approve. Amounts: negative is money out. Nothing is created until you approve."),
-			el("div", { class: "review-wrap" }, el("table", { class: "review" },
-				el("thead", {}, el("tr", {}, el("th", {}, "Date"), el("th", {}, "Description"), el("th", { class: "num" }, "Amount"), el("th", { class: "num" }, "Balance"), el("th", {}))),
-				body)),
-			el("div", { class: "actions" },
-				el("button", { class: "btn", onclick: () => { r.rows.push({ date: "", description: "", amount: "", balance: "" }); draw(); } }, "Add a row"),
-				el("span", { class: "spacer" }),
-				reject,
-				el("button", { class: "btn", onclick: () => { closeReview(); render(); } }, "Later"),
-				approve),
-		);
-	}
-
-	// Files in Ledger's file storage (Ledger 0.13.2+) open and download straight from it.
-	// What browsers show in a tab (CSV is left out: browsers usually download it anyway).
-	const VIEWABLE = /^(application\/pdf|image\/(png|jpeg|gif|webp)|text\/plain)/;
-	const viewable = (f) => f.url && (VIEWABLE.test(f.content_type || "") || /\.(pdf|png|jpe?g|gif|webp|txt)$/i.test(f.name)) && !/\.csv$/i.test(f.name);
-	async function download(f) {
-		if (f.url) return el("a", { href: f.url, download: f.name }).click();
-		try {
-			const c = await content(f);
-			const url = URL.createObjectURL(new Blob([c.bytes], { type: c.content_type || "application/octet-stream" }));
-			el("a", { href: url, download: f.name }).click();
-			setTimeout(() => URL.revokeObjectURL(url), 10_000);
-		} catch (e) { fail(e); }
-	}
-
-	const patch = (f, body) => api(`/files/${f.id}`, { method: "PATCH", body: JSON.stringify(body) }).then(load, fail);
-	$("filter").onchange = () => { openId = null; load().catch(fail); };
-
-	// ------------------------------------------------------------- the extension, zipped in the browser
-	const EXT_FILES = ["manifest.json", "background.js", "popup.html", "popup.js", "options.html", "options.js", "style.css", "README.md", "defaults.json", "icons/icon-48.png", "icons/icon-128.png"];
-	const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
-	const crc32 = (b) => { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
-	/** A ZIP of [{ name, data: Uint8Array }] with stored (uncompressed) entries. */
-	function zip(entries) {
-		const enc = new TextEncoder();
-		const parts = [];
-		const central = [];
-		let offset = 0;
-		for (const { name, data } of entries) {
-			const n = enc.encode(name);
-			const crc = crc32(data);
-			const local = new DataView(new ArrayBuffer(30));
-			local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(8, 0, true);
-			local.setUint32(14, crc, true); local.setUint32(18, data.length, true); local.setUint32(22, data.length, true); local.setUint16(26, n.length, true);
-			parts.push(new Uint8Array(local.buffer), n, data);
-			const cen = new DataView(new ArrayBuffer(46));
-			cen.setUint32(0, 0x02014b50, true); cen.setUint16(4, 20, true); cen.setUint16(6, 20, true);
-			cen.setUint32(16, crc, true); cen.setUint32(20, data.length, true); cen.setUint32(24, data.length, true); cen.setUint16(28, n.length, true); cen.setUint32(42, offset, true);
-			central.push(new Uint8Array(cen.buffer), n);
-			offset += 30 + n.length + data.length;
-		}
-		const size = central.reduce((s, p) => s + p.length, 0);
-		const end = new DataView(new ArrayBuffer(22));
-		end.setUint32(0, 0x06054b50, true); end.setUint16(8, entries.length, true); end.setUint16(10, entries.length, true); end.setUint32(12, size, true); end.setUint32(16, offset, true);
-		return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/zip" });
-	}
-	$("get-ext").onclick = () => $("ext").classList.toggle("hidden");
-	$("ext-url").textContent = location.origin;
-	$("dl-ext").onclick = async () => {
-		$("ext-msg").textContent = "Preparing…";
-		try {
-			const entries = await Promise.all(EXT_FILES.map(async (f) => {
-				const r = await fetch(`extension/${f}`);
-				if (!r.ok) throw new Error(`extension/${f}: ${r.status}`);
-				// This Ledger's address goes in, so the extension knows where to send without being told.
-				if (f === "defaults.json") return { name: `send-to-ledger/${f}`, data: new TextEncoder().encode(JSON.stringify({ ledgerUrl: location.origin }, null, 2) + "\n") };
-				return { name: `send-to-ledger/${f}`, data: new Uint8Array(await r.arrayBuffer()) };
-			}));
-			const url = URL.createObjectURL(zip(entries));
-			el("a", { href: url, download: "send-to-ledger.zip" }).click();
-			setTimeout(() => URL.revokeObjectURL(url), 10_000);
-			$("ext-msg").textContent = "Downloaded send-to-ledger.zip.";
-		} catch (e) { $("ext-msg").textContent = ""; fail(e); }
-	};
-
-	// ------------------------------------------------------------- Camera (phones and tablets): photos -> one PDF -> the inbox
-	// The phone's camera is reached through a file input with capture: it works inside Ledger's frame without
-	// camera permissions. Photos are shrunk and put into a PDF in the browser, so the AI and Auto
-	// sort can read them; nothing leaves the page except the upload to this inbox.
-	let parentQuery = new URLSearchParams();
-	try { parentQuery = new URLSearchParams(window.parent.location.search); } catch {}
-	const MOBILE = matchMedia("(pointer: coarse)").matches || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-	let pages = []; // [{ jpeg: Uint8Array, w, h, url }]
-
-	function showTab(name) {
-		for (const b of document.querySelectorAll(".tab")) b.setAttribute("aria-selected", String(b.dataset.tab === name));
-		$("tab-inbox").classList.toggle("hidden", name !== "inbox");
-		$("tab-scan").classList.toggle("hidden", name !== "scan");
-		if (name === "inbox") load().catch(fail);
-		if (name === "scan" && scanner === null) loadScanner();
-	}
-	for (const b of document.querySelectorAll(".tab")) b.onclick = () => showTab(b.dataset.tab);
-
-	/** A photo on a canvas, upright as the camera held it, at most 3000 px on its long side (for finding and straightening the receipt). */
-	async function loadPhoto(file) {
-		let img;
-		try {
-			img = await createImageBitmap(file, { imageOrientation: "from-image" });
-		} catch {
-			img = await new Promise((resolve, reject) => {
-				const i = new Image();
-				i.onload = () => resolve(i);
-				i.onerror = () => reject(new Error(`${file.name || "This photo"} can't be read here; take it again or choose a JPEG or PNG.`));
-				i.src = URL.createObjectURL(file);
-			});
-		}
-		const w0 = img.width, h0 = img.height;
-		const k = Math.min(1, 3000 / Math.max(w0, h0));
-		const w = Math.max(1, Math.round(w0 * k)), h = Math.max(1, Math.round(h0 * k));
-		const canvas = document.createElement("canvas");
-		canvas.width = w;
-		canvas.height = h;
-		const g = canvas.getContext("2d", { willReadFrequently: true });
-		g.fillStyle = "#fff"; // transparent PNGs on white
-		g.fillRect(0, 0, w, h);
-		g.drawImage(img, 0, 0, w, h);
-		img.close?.();
-		return canvas;
-	}
-
-	/** A page: the canvas as a JPEG at most 2000 px on its long side. */
-	async function canvasToPage(src) {
-		const k = Math.min(1, 2000 / Math.max(src.width, src.height));
-		let canvas = src;
-		if (k < 1) {
-			canvas = document.createElement("canvas");
-			canvas.width = Math.max(1, Math.round(src.width * k));
-			canvas.height = Math.max(1, Math.round(src.height * k));
-			canvas.getContext("2d").drawImage(src, 0, 0, canvas.width, canvas.height);
-		}
-		const w = canvas.width, h = canvas.height;
-		const blob = await new Promise((r) => canvas.toBlob(r, "image/jpeg", 0.82));
-		if (!blob) throw new Error("Couldn't prepare the photo.");
-		return { jpeg: new Uint8Array(await blob.arrayBuffer()), w, h, url: URL.createObjectURL(blob) };
-	}
-
-	/** A PDF with one JPEG per page, each page A4 wide. */
-	function jpegsToPdf(list) {
-		const enc = new TextEncoder();
-		const parts = [];
-		const offsets = [];
-		let len = 0;
-		const push = (x) => { const b = typeof x === "string" ? enc.encode(x) : x; parts.push(b); len += b.length; };
-		const obj = (n, ...body) => { offsets[n] = len; push(`${n} 0 obj\n`); body.forEach(push); push("\nendobj\n"); };
-		push("%PDF-1.4\n");
-		push(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a])); // binary marker
-		const kids = list.map((_, i) => `${3 + i * 3} 0 R`).join(" ");
-		obj(1, "<< /Type /Catalog /Pages 2 0 R >>");
-		obj(2, `<< /Type /Pages /Kids [${kids}] /Count ${list.length} >>`);
-		list.forEach((p, i) => {
-			const n = 3 + i * 3;
-			const pw = 595.28, ph = +((p.h * pw) / p.w).toFixed(2);
-			const draw = `q ${pw} 0 0 ${ph} 0 0 cm /Im0 Do Q`;
-			obj(n, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pw} ${ph}] /Resources << /XObject << /Im0 ${n + 2} 0 R >> >> /Contents ${n + 1} 0 R >>`);
-			obj(n + 1, `<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`);
-			obj(n + 2, `<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpeg.length} >>\nstream\n`, p.jpeg, "\nendstream");
-		});
-		const count = 3 + list.length * 3;
-		const xref = len;
-		push(`xref\n0 ${count}\n0000000000 65535 f \n`);
-		for (let n = 1; n < count; n++) push(`${String(offsets[n]).padStart(10, "0")} 00000 n \n`);
-		push(`trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
-		const out = new Uint8Array(len);
-		let at = 0;
-		for (const b of parts) { out.set(b, at); at += b.length; }
-		return out;
-	}
-
-	const b64 = (bytes) => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(s); };
-	/** Uploads bytes to this inbox the way the extension does (in chunks) → the file. */
-	async function uploadBytes(name, type, bytes, origin = "upload") {
-		const { id, chunk_size } = await api("/files", { method: "POST", body: JSON.stringify({ name, content_type: type, size: bytes.length, origin }) });
-		for (let i = 0, k = 0; i < bytes.length; i += chunk_size, k++) {
-			await api(`/files/${id}/chunks/${k}`, { method: "PUT", body: JSON.stringify({ data: b64(bytes.subarray(i, i + chunk_size)) }) });
-		}
-		return api(`/files/${id}/complete`, { method: "POST", body: "{}" });
-	}
-
-	function defaultScanName() {
-		const d = new Date();
-		const p2 = (n) => String(n).padStart(2, "0");
-		return `Receipt ${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}.${p2(d.getMinutes())}.pdf`;
-	}
-
-	function drawPages() {
-		$("scan-pages").replaceChildren(...pages.map((p, i) => el("div", { class: "scan-page" },
-			el("img", { src: p.url, alt: `Page ${i + 1}` }),
-			el("div", { class: "cap" }, `Page ${i + 1}`, el("button", { class: "btn small-btn", "aria-label": `Remove page ${i + 1}`, onclick: () => { URL.revokeObjectURL(p.url); pages.splice(i, 1); drawPages(); } }, "×")),
-		)));
-		$("scan-save").classList.toggle("hidden", pages.length === 0);
-		$("scan-camera").parentElement.firstChild.textContent = pages.length ? "Add a page" : "Take a photo";
-		if (pages.length && !$("scan-name").value) $("scan-name").value = defaultScanName();
-	}
-
-	async function addPhotos(input) {
-		const files = [...input.files];
-		input.value = ""; // the same photo can be chosen again
-		if (!files.length) return;
-		document.querySelector("#camera-box .scan-actions").classList.add("hidden");
-		$("scan-save").classList.add("hidden");
-		try {
-			for (const f of files) {
-				$("scan-busy").classList.remove("hidden");
-				const photo = await loadPhoto(f);
-				await new Promise((r) => setTimeout(r, 0)); // let "Preparing…" show
-				const found = window.Receipt ? Receipt.detect(photo) : { corners: [[0, 0], [photo.width, 0], [photo.width, photo.height], [0, photo.height]], found: false };
-				$("scan-busy").classList.add("hidden");
-				const page = await editPhoto(photo, found);
-				if (page) { pages.push(await canvasToPage(page)); drawPages(); }
-			}
-		} catch (e) { fail(e); } finally {
-			$("scan-busy").classList.add("hidden");
-			$("crop").classList.add("hidden");
-			document.querySelector("#camera-box .scan-actions").classList.remove("hidden");
-			drawPages();
-		}
-	}
-
-	/**
-	 * Shows the photo with the receipt's corners (found, or the whole photo) to drag into place.
-	 * Resolves with the page's canvas (straightened, maybe cleaned up), or null when discarded.
-	 */
-	function editPhoto(photo, found) {
-		const box = $("crop"), cv = $("crop-canvas");
-		const corners = found.corners.map((p) => p.slice());
-		$("crop-msg").replaceChildren(found.found
-			? el("span", {}, el("strong", {}, "Receipt found. "), "Drag the corners onto the receipt's corners if they're off, then Use this.")
-			: el("span", {}, el("strong", {}, "Couldn't find the receipt's edges. "), "Drag the four corners onto the receipt's corners (a dark background helps), or use the whole photo."));
-		$("crop-clean").checked = found.found;
-		box.classList.remove("hidden");
-		const dpr = window.devicePixelRatio || 1;
-		let scale = 1;
-		const draw = () => {
-			const maxW = box.clientWidth - 2, maxH = Math.max(240, window.innerHeight * 0.62);
-			scale = Math.min(maxW / photo.width, maxH / photo.height);
-			const w = Math.round(photo.width * scale), h = Math.round(photo.height * scale);
-			cv.style.width = `${w}px`;
-			cv.style.height = `${h}px`;
-			cv.width = Math.round(w * dpr);
-			cv.height = Math.round(h * dpr);
-			const g = cv.getContext("2d");
-			g.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
-			g.drawImage(photo, 0, 0);
-			const lw = 3 / scale, r = 13 / scale;
-			// Dim what's outside the receipt.
-			g.save();
-			g.beginPath();
-			g.rect(0, 0, photo.width, photo.height);
-			corners.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-			g.closePath();
-			g.fillStyle = "rgba(0,0,0,0.45)";
-			g.fill("evenodd");
-			g.restore();
-			g.beginPath();
-			corners.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-			g.closePath();
-			g.lineWidth = lw;
-			g.strokeStyle = "#4c8dff";
-			g.stroke();
-			for (const [x, y] of corners) {
-				g.beginPath();
-				g.arc(x, y, r, 0, Math.PI * 2);
-				g.fillStyle = "rgba(255,255,255,0.9)";
-				g.fill();
-				g.lineWidth = lw;
-				g.stroke();
-			}
-		};
-		let drag = -1;
-		const at = (e) => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) / scale, (e.clientY - b.top) / scale]; };
-		cv.onpointerdown = (e) => {
-			const p = at(e);
-			let best = -1, bestD = 44 / scale;
-			corners.forEach((c, i) => { const d = Math.hypot(c[0] - p[0], c[1] - p[1]); if (d < bestD) { bestD = d; best = i; } });
-			if (best < 0) return;
-			drag = best;
-			cv.setPointerCapture(e.pointerId);
-			e.preventDefault();
-		};
-		cv.onpointermove = (e) => {
-			if (drag < 0) return;
-			const [x, y] = at(e);
-			corners[drag] = [Math.min(photo.width, Math.max(0, x)), Math.min(photo.height, Math.max(0, y))];
-			draw();
-		};
-		cv.onpointerup = cv.onpointercancel = () => (drag = -1);
-		const onResize = () => draw();
-		addEventListener("resize", onResize);
-		draw();
-		box.scrollIntoView({ block: "nearest" });
-		return new Promise((resolve) => {
-			const done = (canvas) => {
-				removeEventListener("resize", onResize);
-				box.classList.add("hidden");
-				resolve(canvas);
-			};
-			$("crop-skip").onclick = () => done(null);
-			$("crop-whole").onclick = () => done($("crop-clean").checked ? Receipt.cleanUp(photo) : photo);
-			$("crop-use").onclick = () => {
-				const out = Receipt.warp(photo, corners, 2000);
-				done($("crop-clean").checked ? Receipt.cleanUp(out) : out);
-			};
-		});
-	}
-	$("scan-camera").onchange = (e) => addPhotos(e.target);
-	$("scan-pick").onchange = (e) => addPhotos(e.target);
-	api("/app").then((a) => { $("app-apk").href = a.apk_url; }).catch(() => {});
-	try { $("app-server").textContent = (window.top.location || location).origin; } catch { $("app-server").textContent = location.origin; }
-	$("scan-clear").onclick = () => { pages.forEach((p) => URL.revokeObjectURL(p.url)); pages = []; $("scan-name").value = ""; $("scan-note").value = ""; drawPages(); };
-	$("scan-upload").onclick = async () => {
-		const btn = $("scan-upload");
-		let name = $("scan-name").value.trim().replace(/[\u0000-\u001f/\\]/g, "-") || defaultScanName();
-		if (!/\.pdf$/i.test(name)) name += ".pdf";
-		btn.disabled = true;
-		btn.textContent = "Saving…";
-		try {
-			const pdf = jpegsToPdf(pages);
-			const f = await uploadBytes(name.slice(-255), "application/pdf", pdf, "camera");
-			const extra = $("scan-note").value.trim();
-			await api(`/files/${f.id}`, { method: "PATCH", body: JSON.stringify({ note: `Scanned with a phone camera (${pages.length} page${pages.length === 1 ? "" : "s"})${extra ? `: ${extra}` : ""}`.slice(0, 1000) }) });
-			$("scan-clear").onclick();
-			toast(`Saved ${f.name} to the inbox.${f.duplicate_of ? " (The same file arrived before.)" : ""}`);
-			$("filter").value = "new";
-			openId = f.id; // its Send panel: a module that takes receipts, Auto sort, or Extract data
-			showTab("inbox");
-			setTimeout(() => document.getElementById(`file-${f.id}`)?.scrollIntoView({ block: "start" }), 300);
-		} catch (e) { fail(e); } finally { btn.disabled = false; btn.textContent = "Save to inbox"; }
-	};
-	if (MOBILE) {
-		$("camera-box").classList.remove("hidden");
-		$("get-ext").classList.add("hidden"); // the extension is for desktop browsers
-	}
-
-	// ------------------------------------------------------------- Upload files
-	$("upload-files").onchange = async (e) => {
-		const list = [...e.target.files];
-		e.target.value = "";
-		let last = null;
-		for (const [i, file] of list.entries()) {
-			$("upload-msg").textContent = `Uploading ${file.name} (${i + 1} of ${list.length})…`;
-			try {
-				last = await uploadBytes(file.name.replace(/[\u0000-\u001f/\\]/g, "-").slice(-255) || "file", file.type, new Uint8Array(await file.arrayBuffer()));
-			} catch (err) { fail(new Error(`${file.name}: ${err.message}`)); }
-		}
-		$("upload-msg").textContent = last ? `Uploaded ${list.length === 1 ? last.name : `${list.length} files`} to the inbox.` : "";
-		if (last) { $("filter").value = "new"; openId = list.length === 1 ? last.id : null; }
-	};
-
-	// ------------------------------------------------------------- Network scanner (eSCL / AirScan, through the Ledger server)
-	let scanner = null;
-	const SOURCE_LABEL = { Platen: "Glass", Feeder: "Document feeder" };
-	async function loadScanner() {
-		try { scanner = await api("/scanner"); } catch (e) { scanner = { configured: false, error: e.message }; }
-		drawScanner();
-	}
-	function drawScanner() {
-		const box = $("scanner");
-		const s = scanner;
-		$("bridge").open = !s.configured && !!s.admin;
-		if (!s.configured) {
-			box.replaceChildren(...[
-				el("div", {}, "No scanner is set up. A scanner or printer with AirScan (eSCL) on your network works: most HP, Canon, Epson, Brother and Xerox models from the last ten years."),
-				s.admin ? setupScanner() : el("div", { class: "muted", style: "margin-top:0.4rem" }, "An admin can set one up here."),
-			].filter(Boolean));
-			return;
-		}
-		if (!s.reachable) {
-			box.replaceChildren(...[
-				el("div", { class: "bad" }, `The scanner at ${s.url} isn't answering: ${s.error}`),
-				el("div", { class: "row", style: "margin-top:0.4rem" }, el("button", { class: "btn", onclick: loadScanner }, "Try again"), s.admin ? el("button", { class: "btn", onclick: () => { box.append(setupScanner()); } }, "Change scanner") : null),
-			].filter(Boolean));
-			return;
-		}
-		const source = el("select", {}, ...s.sources.map((x) => el("option", { value: x.id }, SOURCE_LABEL[x.id] || x.id)));
-		if (s.adf === "ScannerAdfLoaded" && s.sources.some((x) => x.id === "Feeder")) source.value = "Feeder";
-		const color = el("select", {}, el("option", { value: "color" }, "Colour"), el("option", { value: "gray" }, "Grey"));
-		const res = el("select", {});
-		const duplex = el("input", { type: "checkbox" });
-		const duplexLabel = el("label", { class: "inline" }, duplex, "Both sides");
-		const name = el("input", { type: "text", maxlength: "255", placeholder: "File name (optional)", style: "flex:1;min-width:10rem" });
-		const syncSource = () => {
-			const src = s.sources.find((x) => x.id === source.value);
-			const list = src.resolutions.length ? src.resolutions.filter((r) => r <= 600) : [150, 300];
-			res.replaceChildren(...list.map((r) => el("option", { value: String(r) }, `${r} dpi`)));
-			res.value = String(list.reduce((b, r) => (Math.abs(r - 300) < Math.abs(b - 300) ? r : b), list[0]));
-			duplexLabel.classList.toggle("hidden", !src.duplex);
-			color.querySelector('[value="gray"]').disabled = src.colorModes.length > 0 && !src.colorModes.includes("Grayscale8");
-		};
-		source.onchange = syncSource;
-		syncSource();
-		const msg = el("span", { class: "muted" });
-		const go = el("button", { class: "btn primary big", onclick: async () => {
-			go.disabled = true;
-			msg.textContent = "Starting…";
-			try {
-				let job = await api("/scans", { method: "POST", body: JSON.stringify({ source: source.value, color: color.value, resolution: Number(res.value), duplex: !duplexLabel.classList.contains("hidden") && duplex.checked, ...(name.value.trim() ? { name: name.value.trim() } : {}) }) });
-				while (job.status === "scanning") {
-					msg.textContent = job.pages ? `Scanning… ${job.pages} page${job.pages === 1 ? "" : "s"}` : "Scanning…";
-					await new Promise((r) => setTimeout(r, 1500));
-					job = await api(`/scans/${job.id}`);
-				}
-				if (job.status === "error") throw new Error(job.error);
-				msg.textContent = "";
-				name.value = "";
-				toast(`Scanned: ${job.file_name}${job.pages > 1 ? ` (${job.pages} pages)` : ""}.`);
-				$("filter").value = "new";
-				openId = job.file_id; // its Send panel: Auto sort, Extract data, another module
-				showTab("inbox");
-				setTimeout(() => document.getElementById(`file-${job.file_id}`)?.scrollIntoView({ block: "start" }), 300);
-			} catch (e) { msg.textContent = ""; fail(e); } finally { go.disabled = false; }
-		} }, "Scan");
-		box.replaceChildren(...[
-			el("div", {}, el("strong", {}, s.name), el("span", { class: "muted" }, ` · ${s.state === "Idle" || !s.state ? "ready" : s.state.toLowerCase()}${s.adf === "ScannerAdfLoaded" ? " · paper in the feeder" : ""}`)),
-			el("div", { class: "row", style: "margin-top:0.5rem" }, source, color, res, duplexLabel),
-			el("div", { class: "row", style: "margin-top:0.5rem" }, name),
-			el("div", { class: "row", style: "margin-top:0.6rem" }, go, msg, el("span", { class: "spacer" }), s.admin ? el("button", { class: "btn", onclick: (e) => { e.target.replaceWith(setupScanner()); } }, "Change scanner") : null),
-		].filter(Boolean));
-	}
-	/** For admins: find scanners on the network, or type an address. */
-	function setupScanner() {
-		const list = el("div", { class: "found" });
-		const addr = el("input", { type: "text", placeholder: "or its address, e.g. 192.168.1.40", style: "flex:1;min-width:10rem" });
-		const use = async (url) => {
-			try {
-				scanner = await api("/scanner", { method: "POST", body: JSON.stringify({ url }) });
-				toast(url ? `Using ${scanner.name}.` : "Scanner removed.");
-				drawScanner();
-			} catch (e) { fail(e); }
-		};
-		const find = el("button", { class: "btn primary", onclick: async () => {
-			find.disabled = true;
-			list.replaceChildren(el("span", { class: "muted" }, "Looking on the network…"));
-			try {
-				const { data } = await api("/scanner/find", { method: "POST", body: "{}" });
-				list.replaceChildren(...(data.length ? data.map((d) => el("div", { class: "row", style: "margin-top:0.3rem" }, el("span", {}, d.name, el("span", { class: "muted" }, ` · ${d.url}`)), el("span", { class: "spacer" }), el("button", { class: "btn", onclick: () => use(d.url) }, "Use"))) : [el("span", { class: "muted" }, "None found. The Ledger server must be on the same network as the scanner (a container may need host networking). Type its address instead: it's on the scanner's screen or network settings page.")]));
-			} catch (e) { list.replaceChildren(); fail(e); } finally { find.disabled = false; }
-		} }, "Find scanners");
-		return el("div", { style: "margin-top:0.6rem" },
-			el("div", { class: "row" }, find, addr, el("button", { class: "btn", onclick: () => use(addr.value) }, "Use this address"), scanner?.configured ? el("button", { class: "btn danger", onclick: () => use("") }, "Remove") : null),
-			list,
-		);
-	}
-
-	// ------------------------------------------------------------- What the email check learned, and the training file
-	async function toggleTraining(force) {
-		const box = $("training");
-		if (!force && !box.classList.contains("hidden")) return box.classList.add("hidden");
-		box.classList.remove("hidden");
-		box.replaceChildren(el("span", { class: "muted" }, "Loading…"));
-		let t, sk;
-		try { [t, sk] = await Promise.all([api("/training"), api("/mail/skipped")]); } catch (e) { box.replaceChildren(); return fail(e); }
-		const forget = async (body, what) => {
-			if (!confirm(`Forget ${what}?`)) return;
-			try { const r = await api("/training/forget", { method: "POST", body: JSON.stringify(body) }); toast(`Forgot ${r.forgotten} example${r.forgotten === 1 ? "" : "s"}.`); toggleTraining(true); } catch (e) { fail(e); }
-		};
-		const download = async () => {
-			try {
-				const file = await api("/training/file");
-				const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 1)], { type: "application/json" }));
-				el("a", { href: url, download: `import-email-training-${new Date().toISOString().slice(0, 10)}.json` }).click();
-				setTimeout(() => URL.revokeObjectURL(url), 10_000);
-			} catch (e) { fail(e); }
-		};
-		const loader = el("input", { type: "file", accept: "application/json,.json", class: "visually-hidden", onchange: async (e) => {
-			const file = e.target.files[0];
-			e.target.value = "";
-			if (!file) return;
-			try {
-				const r = await api("/training/file", { method: "POST", body: await file.text() });
-				toast(`Loaded ${r.added} example${r.added === 1 ? "" : "s"}${r.skipped ? ` (${r.skipped} already known)` : ""}.`);
-				toggleTraining(true);
-			} catch (err) { fail(err); }
-		} });
-		const importAnyway = async (row, btn) => {
-			btn.disabled = true;
-			try {
-				const r = await api("/mail/skipped/import", { method: "POST", body: JSON.stringify({ folder: row.folder, uid: row.uid }) });
-				toast(r.files ? `Imported ${r.files} file${r.files === 1 ? "" : "s"}; files like ${r.files === 1 ? "it" : "them"} count as wanted now.` : "Its files are already in the inbox.");
-				$("filter").value = "new";
-				await load();
-				toggleTraining(true);
-			} catch (e) { fail(e); btn.disabled = false; }
-		};
-		const total = t.deleted + t.kept;
-		box.replaceChildren(...[
-			el("div", { class: "row" }, el("strong", {}, "What the email check learned"), el("span", { class: "spacer" }), el("button", { class: "btn small-btn", "aria-label": "Close", onclick: () => box.classList.add("hidden") }, "×")),
-			el("div", { class: "muted", style: "margin:0.2rem 0 0.5rem" }, total
-				? `From ${t.deleted} file${t.deleted === 1 ? "" : "s"} you deleted with "Delete and learn" and ${t.kept} you sent on. Later emails with files like the deleted ones, from the same sender, are skipped (listed below, so you can import them anyway).`
-				: 'Nothing yet. When you delete a file that came from email, choose "Delete and learn" and later files like it from that sender are skipped. Files you send on count as wanted.'),
-			t.senders.length ? el("table", { class: "review" },
-				el("thead", {}, el("tr", {}, el("th", {}, "Sender"), el("th", { class: "num" }, "Deleted"), el("th", { class: "num" }, "Kept"), el("th", {}))),
-				el("tbody", {}, ...t.senders.map((r) => el("tr", {},
-					el("td", { class: "wide" }, r.sender), el("td", { class: "num" }, String(r.deleted)), el("td", { class: "num" }, String(r.kept)),
-					el("td", {}, el("button", { class: "btn small-btn", onclick: () => forget({ sender: r.sender }, `what was learned about ${r.sender}`) }, "Forget")))))) : null,
-			sk.data.length ? el("div", { style: "margin-top:0.6rem" }, el("strong", {}, "Skipped emails"),
-				...sk.data.map((row) => {
-					const btn = el("button", { class: "btn small-btn" }, "Import anyway");
-					btn.onclick = () => importAnyway(row, btn);
-					const view = el("button", { class: "btn small-btn", onclick: () => MailView.open({ id: row.uid, folder: row.folder, onDone: afterMailView(() => toggleTraining(true)) }) }, "View");
-					return el("div", { class: "row", style: "margin-top:0.3rem;align-items:flex-start" },
-						el("div", { style: "flex:1;min-width:12rem" }, el("div", {}, row.subject || "(no subject)", el("span", { class: "muted" }, ` · ${row.mail_from}`)), el("div", { class: "muted" }, row.reason)),
-						view, btn);
-				})) : null,
-			el("div", { class: "actions", style: "margin-top:0.6rem" },
-				el("button", { class: "btn", onclick: download }, "Download the training file"),
-				el("label", { class: "btn" }, "Load a training file", loader),
-				total ? el("button", { class: "btn danger", onclick: () => forget({ all: true }, "everything the email check learned") }, "Forget everything") : null),
-		].filter(Boolean));
-	}
-
-	// ------------------------------------------------------------- Email (Settings → Import)
-	const MAILBOX = { imap: "IMAP mailbox", gmail: "Gmail" };
-	async function loadMail() {
-		let m;
-		try { m = await api("/mail"); } catch { return; }
-		const box = $("mail");
-		if (m.setting === "off") return box.classList.add("hidden");
-		box.classList.remove("hidden");
-		const st = m.state || {};
-		const ago = (iso) => { const min = Math.round((Date.now() - Date.parse(iso)) / 60000); return min < 1 ? "just now" : min < 60 ? `${min} min ago` : min < 1440 ? `${Math.round(min / 60)} h ago` : new Date(iso).toLocaleDateString(); };
-		const r = st.result || {};
-		const got = (r.files || 0) + (r.emails_saved || 0);
-		const line = m.missing
-			? el("span", { class: "muted" }, `Email: ${m.missing}.`)
-			: st.error
-				? el("span", { class: "bad" }, `Email check failed ${ago(st.last_check_at)}: ${st.error}`)
-				: el("span", { class: "muted" }, st.last_check_at ? `Email (${MAILBOX[m.mailbox] || "mailbox"}) checked ${ago(st.last_check_at)}${got ? ` · ${got} new file${got === 1 ? "" : "s"}` : ""}${m.interval ? `, every ${m.interval} min` : ""}.` : `Email (${MAILBOX[m.mailbox] || "mailbox"}) not checked yet.`);
-		const btn = el("button", { class: "btn", onclick: async () => {
-			btn.disabled = true;
-			btn.textContent = "Checking…";
-			try {
-				const res = await api("/mail/check", { method: "POST", body: "{}" });
-				if (res.error) throw new Error(res.error);
-				const n = (res.files || 0) + (res.emails_saved || 0);
-				toast(res.skipped ? `Email: ${res.skipped}.` : n ? `${n} new file${n === 1 ? "" : "s"} from email.` : `No new bills in email (${res.looked_at} looked at).`);
-				$("filter").value = "new";
-				await load();
-			} catch (e) { fail(e); await loadMail(); }
-		} }, "Check email now");
-		const learnedLink = el("a", { href: "#", onclick: (e) => { e.preventDefault(); toggleTraining(); } }, "What it learned");
-		box.replaceChildren(...[line, m.missing ? null : btn, learnedLink].filter(Boolean));
-	}
-
-	// ------------------------------------------------------------- after the email viewer imported a skipped email
-	/** After the email viewer imported an email: say so, and show the inbox's new files. */
-	const afterMailView = (then = () => {}) => async (r) => {
-		if (r.imported) {
-			const { files, duplicates } = r.imported;
-			toast(files ? `Imported ${files} file${files === 1 ? "" : "s"}.` : duplicates ? "Already in the inbox." : "Nothing imported.");
-			$("filter").value = "new";
-			await load().catch(fail);
-		}
-		then();
-	};
-	// ------------------------------------------------------------- start (?file= from Ledger's search bar, ?tab=scan)
-	(async () => {
-		const fileId = parentQuery.get("file");
-		if (fileId && /^\d+$/.test(fileId)) {
-			$("filter").value = "all";
-			openId = Number(fileId);
-		}
-		if (parentQuery.get("tab") === "scan" && !openId) return showTab("scan");
-		await load();
-		if (openId) document.getElementById(`file-${openId}`)?.scrollIntoView({ block: "center" });
-	})().catch(fail);
+	load();
 </script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 ---
 name: ledger-module
-description: Work on this Ledger module (the Downloads module and its Send to Ledger browser extension, a plugin for the Ledger bookkeeping app installed from this GitHub repository): add features, fix bugs, update it for new Ledger versions, check it, and release it. Use for any change to this repository's module code, manifest, migrations, UI or releases.
+description: Work on this Ledger module (Import, id downloads: since 0.22.0 only the hand-over of its data to Auto sort; a plugin for the Ledger bookkeeping app installed from this GitHub repository): add features, fix bugs, update it for new Ledger versions, check it, and release it. Use for any change to this repository's module code, manifest, migrations, UI or releases.
 ---
 
 # Working on this Ledger module
@@ -191,142 +191,29 @@ leave pushing it to them. The module must work without that change.
    server starts" is on (Settings → Updates, Ledger 0.12.1). Tell the user
    which of these picks it up; "Update modules now" is the quickest.
 
-## This module: Import (`id: downloads`, kept from its old name Downloads; schema `mod_downloads`)
+## This module: Import (`id: downloads`; schema `mod_downloads`): the last version
 
-An inbox for files sent from the browser, plus the Send to Ledger extension
-that sends them (`ui/extension/`, Manifest V3 for Chrome and Firefox 128+).
+Import is now part of Auto sort (`id: categorizer`, mastifdogo/auto-sort_module). Since 0.22.0
+this repository only hands Import's data over; new features go in Auto sort, not here.
 
-- Needs Ledger ≥ 0.19.0 (`ctx.documents`; `ctx.mail` 0.18.3; `ctx.storage`
-  0.13.2). No feature detection for older Ledger any more. Settings:
-  `max_file_mb`, `keep_days`, the email check's, `scanner_url`.
-- Each organization has its own inbox. The hourly clean-up and the startup
-  dashboard notice run through `eachOrg` (`ctx.orgs.forEach`), one
-  organization's failure not stopping the others. `max_file_mb` and
-  `keep_days` are per organization from Ledger 0.11.1, so `options()` is
-  read per request and per organization in the clean-up.
-- `POST /files/:id/handoff {to, kind, account_code?}` hands a file to any
-  module that accepts that kind (statement, bill, receipt, transaction;
-  customer, vendor and entity lists for CSVs, Ledger 0.12.0 / 0.16.0) through `ctx.files` (`GET /targets` lists
-  them); `sent_file_id` (migration 002) links the outbox entry so `GET /files`
-  shows the receiver's status and result (`handoff`).
-- `POST /files/:id/extract` reads a non-CSV file (PDF when the provider
-  reads PDFs, a photo or a scanned PDF's JPEG pages (`pdfJpegs`) as `images`
-  when `ctx.llm.status().images.configured` (Ledger ≥ 0.11.2, feature-detected
-  so 0.11.0–0.11.1 still work), or text) with `ctx.llm.json` into a **pending** row of
-  `extractions` (migration 003), and nothing else. The page shows the rows
-  for review; `POST /extractions/:id/approve {rows?}` (the person's edits,
-  validated strictly) creates the CSV and marks the original sent in one
-  claim, `…/reject` discards it. `syncNotice` also keeps the "review"
-  dashboard to-do in step with pending extractions.
-- Upload API is chunked (512 KiB chunks) to stay under Ledger's 1 MiB JSON
-  limit: `POST /files` → `PUT /files/:id/chunks/:i` → `POST /files/:id/complete`.
-  Chunks arrive in `file_chunks`; `complete` settles them.
-- **Where bytes live** (server.mjs, "Where file bytes live"): `place()` puts
-  a PDF/PNG/JPEG (sniffed, ≤ 50 MB) in `ctx.documents` (`files.document_id`,
-  `document_added_here`; a 409 duplicate uses the document the error names)
-  and anything else in `ctx.storage` (`storage_path`,
-  `inbox/<random>/<name>`). `settle()` moves a file that isn't placed yet
-  (chunks, or a PDF still in storage from 0.7–0.8); `settleOldFiles` does it
-  hourly in batches. **Read bytes only through `fileBytes(f)`.** `discard()`
-  removes a deleted file's document only if added here, never sent, and no
-  other inbox row points at it. `GET /files` adds `url`, `document: { kind,
-  account_code }` and `missing`. Ledger's NotFoundError has no `status`:
-  use `notFound404(err)`.
-- `POST /files/:id/file-as {kind, account_code?}` sets the document's kind
-  (and a statement's account) and marks the file sent; `/handoff` and `/sent
-  {kind}` set it too (`DOCUMENT_KIND_OF`). PDFs still go to modules through
-  `ctx.files` with `meta.document_id`, until Auto sort reads from the store;
-  drop that when it does.
-- The page also forwards files to the Auto sort module's own routes
-  (`/api/v1/m/categorizer/…`) and to Ledger's `POST /api/v1/files` from the
-  browser, then records it with `POST /files/:id/sent`. Auto sort is
-  optional: detect it (404 on its routes) and hide those options. Once Auto
-  sort accepts files through `ctx.files` (it's listed by `/targets`), the page
-  uses that instead and hides its direct options.
-- **Email** (`lib/mail.mjs`): through `ctx.mail` only. `messagesSince`
-  walks the search back by date (100 a call); `emailCandidates` picks
-  attachments by name, type and size before downloading; documents of
-  keyword-matching emails become inbox files (`saveFile`, `origin: "email"`),
-  bills without attachments `.eml`. `mail_seen` keeps each message once per
-  mailbox (`folder` = `<kind>:<account>`, `uidvalidity` 0, `uid` = the
-  mail id); `email_check_state` the last check. A minute timer loops
-  `ctx.orgs.forEach`; "auto" reads mail only in organization 1. No AI.
-  Tests use a stand-in ctx (test/import.test.mjs).
-- **Email learning** (`lib/learn.mjs`, migration 005): email files keep
-  `mail_features`; `DELETE /files/:id?learn=1` stores an unwanted example,
-  sending a file on (`learnKept` in /sent, /handoff, extraction approve) a
-  wanted one. `learner()` judges each attachment only against examples from
-  its own sender/domain (naive Bayes, skip at ≥ 85% with a matching file
-  word, or 3+ deletions and nothing kept). Skips are logged in `mail_seen`
-  (`reason`) and can be imported anyway. No AI. Training file:
-  `GET/POST /training/file` (`"format": "ledger-import-email-training"`).
-- **Scan bridge** (`ui/scan-bridge/`): a USB scanner on a PC shared as eSCL —
-  `.ps1` (Windows, WIA COM + HttpListener; can't be run in CI, review by
-  hand) and `.py` (SANE scanimage, tested in test/bridge.test.mjs with a
-  stand-in scanimage). Both serve the subset lib/escl.mjs uses.
-- **Camera receipt detection** (`ui/receipt.js`): Otsu threshold → largest
-  light region → convex hull → max-area quad; the person drags the corners;
-  `warp` (homography, bilinear) and `cleanUp` (levels). Untrusted results
-  fall back to the whole photo.
-- **Scanner** (`lib/escl.mjs`): eSCL over node:http/https from the server
-  (scanners use self-signed certs), only to local addresses (resolved once,
-  checked, then connected to; the job URL must stay on the same host).
-  Admins set `scanner_url` (settings) via `POST /scanner` or mDNS
-  `POST /scanner/find`. `POST /scans` runs the job in the background (in
-  the request's organization) and the page polls `GET /scans/:id`; JPEG
-  pages become a PDF (`lib/pdf.mjs`). Tests use a fake eSCL server.
-- **Scan** tab (`ui/index.html`, every device): Scanner, Camera (touch
-  devices only), Upload files. Camera photos come from `<input type="file"
-  capture="environment">` (works inside Ledger's iframe without camera
-  permissions, unlike `getUserMedia`), are shrunk on a canvas to JPEG, and
-  `jpegsToPdf` writes them as pages of one PDF (DCTDecode, no library). It
-  uploads with the same chunked routes as the extension and PATCHes a note;
-  no server route of its own. A PDF, so Claude (`ctx.llm` documents) and
-  Auto sort bills can read it.
-- The extension never talks to Ledger from its own origin: every request
-  runs inside a Ledger tab via `chrome.scripting.executeScript({ world:
-  "MAIN" })` (Ledger's cookie is SameSite=Strict and it refuses cross-site
-  POSTs). Keep it that way; don't add tokens or ask Ledger for exceptions.
-- Extension responsiveness (background.js): a menu click starts the download
-  in the site's tab and opens the window at once; the popup asks for the
-  file with a `pending` message (kept in memory, not session storage: its
-  10 MB quota is smaller than files can be). `ledgerTab` reuses one hidden
-  helper tab for 45 s when no Ledger tab is open (`warmUp` opens it early);
-  `uploadToInbox` sends 3 chunks at a time and posts `progress` messages.
-- The page builds the extension zip in the browser from `ui/extension/`
-  (the `EXT_FILES` list in `ui/index.html`): add new extension files there.
-  It writes this Ledger's origin into `defaults.json` in the zip (the repo's
-  copy has an empty address); the extension falls back to it when nothing
-  is saved. Missing address or host permission → errors with code `setup`,
-  and the popup shows its own setup form (address saved before
-  `permissions.request`, which must come straight from the click).
-- Sending runs in background.js (`runJob` → `deliver`), not the popup: the
-  popup sends `{ type: "send", job, file? }` (no file when a menu click's
-  download is held in `pending`) and may be closed. `runJob` waits for the
-  download, delivers, and `announce()`s (notification, badge,
-  `lastResult` for the popup's next opening). A destination that doesn't
-  fit the file (`misfit`) falls back to the Import inbox; other failures
-  keep `pending` so Send can be pressed again. The popup shows the form at
-  once while a file downloads (`waiting`).
-- **Phone app** (`android/`, Kotlin, no server code of its own): logs in
-  with a username and password, keeps Ledger's session cookie, and uses the
-  same chunked upload routes with `origin: "app"`. Every POST/PUT must send
-  a JSON body (`{}` when empty): Android otherwise marks it as a web form
-  and Ledger answers 415. `LedgerClient.call(…, org)` puts the session in
-  the receipt's organization first (`POST /auth/organization`; a new login
-  starts in the user's usual one). `Queue` is files in the app's storage
-  (all access under `Queue.LOCK`; `Sender.sending` can't be changed or
-  deleted). `Wifi.homeNow` gates sending by itself when a home Wi-Fi is set
-  (the name needs the location permission; unknown name on Wi-Fi: try).
-  Build: `ANDROID_HOME=… gradle -p android assembleDebug` (SDK platform 35);
-  `app.yml` builds it on every push, `release.yml` signs and attaches it.
-- Organization (extension 0.5.0): Ledger has no per-request organization, only
-  the session's (`POST /api/v1/auth/organization`). `inOrganization(orgId, fn)`
-  in background.js switches to the chosen one (options: `orgId` in storage;
-  the popup's `#org` sends `job.org`), runs fn, and switches back in `finally`,
-  one at a time (`orgQueue`); membership and the viewer role come from
-  `/auth/me`. Account lists (`accounts`, `ledger-accounts` messages) take
-  `org` too. 0 means wherever Ledger is.
-- Checks: Ledger's checker (`scripts/check.sh`) and
-  `npx web-ext lint --source-dir ui/extension` (0 errors expected; the
-  `background.service_worker` warning is expected for Firefox).
+- Needs Ledger >= 0.26.0 (one file store: no `ctx.storage.put`, no `bytea` columns).
+- `server.mjs`: `GET /status` (the hand-over's state in the request's organization, for the
+  page), 410 answers on the routes the old extension and phone app send files to, one dashboard
+  notice per organization (fixed key `moved-to-auto-sort` and fixed text, so a dismissed one stays
+  dismissed), and the move started in the background at startup.
+- `lib/move.mjs`: per organization, a few files per pass, every file in the module's old storage
+  is filed in Documents (`ctx.documents.ensure`), the row gets `document_id` (and
+  `document_added_here`), `storage_path` is cleared, then the stored copy is removed. Stray stored
+  files no row points to are filed too. Safe to run again; passes repeat on an unref'd timer while
+  files are left, and `GET /status` starts one when it finds files to move.
+- `migrations/013_no_file_chunks.sql` drops `file_chunks` after a guard that stops the update
+  while a complete file still has its bytes only there (0.21.1 moves those).
+- Auto sort reads `mod_downloads.*` itself (files, extractions, mail_seen, mail_training,
+  email_check_state) when an admin presses "Bring over Import's files" there. It never deletes
+  from this schema, and it needs every file row to carry `document_id`: don't rename or drop
+  these tables or columns.
+- The settings were taken out of the manifest; their values stay stored in Ledger.
+- The browser extension and the Android app are now released from the Auto sort repository.
+  They, the scan bridge and the feature code (`lib/mail.mjs`, `lib/escl.mjs`, …) were removed
+  here; their last copies are in this repository's history before 0.22.0.
+- Checks: `sh .claude/skills/ledger-module/scripts/check.sh` and `npm test`.
