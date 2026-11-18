@@ -8,7 +8,7 @@ last version of Import, 0.22.0, which only hands its data over. Its id is still 
 
 ## What happened
 
-Ledger 0.26.0 keeps every file of every module in one place, Ledger's Documents, and Import's
+Ledger 0.27.0 keeps every file of every module in one place, Ledger's Documents, and Import's
 features were merged into Auto sort (0.17.0 and newer). Import is no longer developed.
 
 ## What this version does
@@ -31,7 +31,7 @@ features were merged into Auto sort (0.17.0 and newer). Import is no longer deve
 
 ## What to do
 
-1. **Update Ledger to 0.26.0 or newer**, then update the modules (Settings → Modules → *Update
+1. **Update Ledger to 0.27.0 or newer**, then update the modules (Settings → Modules → *Update
    modules now*): Import to 0.22.0 and **Auto sort to 0.17.0 or newer**.
 2. **Open Auto sort and press "Bring over Import's files"** (an admin, once in each organization).
    Auto sort takes over the inbox, the email check's memory and the AI extractions. Nothing is

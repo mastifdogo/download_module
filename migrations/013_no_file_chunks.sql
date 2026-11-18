@@ -1,5 +1,5 @@
 -- Import 0.22.0, the last version: Import is now part of Auto sort, and this
--- version only hands its files over. Ledger 0.26.0 lets no module keep file
+-- version only hands its files over. Ledger 0.27.0 lets no module keep file
 -- bytes in its tables, so file_chunks goes (uploads arrived there in pieces;
 -- on very old installs whole files stayed there).
 --

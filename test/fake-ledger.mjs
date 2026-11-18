@@ -39,7 +39,7 @@ export function fakeLedger({ rows = [], stored = {}, orgs = [{ id: 1, name: "Mai
 	};
 	const info = (path) => ({ path, size: L.storage.get(path).length, content_type: "application/octet-stream", modified_at: new Date(), url: `/storage/${path}` });
 	L.ctx = {
-		id: "downloads", name: "Import", schema: "mod_downloads", version: "0.22.0", ledgerVersion: "0.26.0",
+		id: "downloads", name: "Import", schema: "mod_downloads", version: "0.22.0", ledgerVersion: "0.27.0",
 		route: (method, path, fn) => L.routes.set(`${method} ${path}`, fn),
 		HttpError: class extends Error { constructor(status, message) { super(message); this.status = status; } },
 		response: (status, body) => ({ status, body }),
@@ -52,7 +52,7 @@ export function fakeLedger({ rows = [], stored = {}, orgs = [{ id: 1, name: "Mai
 		log: { info: (msg, attrs) => L.logs.push(["info", msg, attrs]), warn: (msg, attrs) => L.logs.push(["warn", msg, attrs]), error: (msg, attrs) => L.logs.push(["error", msg, attrs]) },
 		files: { targets: () => targets },
 		storage: {
-			// Ledger 0.26.0: a module built for it can't save here any more.
+			// Ledger 0.27.0: a module built for it can't save here any more.
 			put: async () => { throw Object.assign(new Error("storage.put: modules keep no files of their own"), { status: 410 }); },
 			stat: async (path) => (L.storage.has(path) ? info(path) : null),
 			get: async (path) => (L.storage.has(path) ? { ...info(path), data: L.storage.get(path) } : null),

@@ -196,7 +196,7 @@ leave pushing it to them. The module must work without that change.
 Import is now part of Auto sort (`id: categorizer`, mastifdogo/auto-sort_module). Since 0.22.0
 this repository only hands Import's data over; new features go in Auto sort, not here.
 
-- Needs Ledger >= 0.26.0 (one file store: no `ctx.storage.put`, no `bytea` columns).
+- Needs Ledger >= 0.27.0 (one file store: no `ctx.storage.put`, no `bytea` columns).
 - `server.mjs`: `GET /status` (the hand-over's state in the request's organization, for the
   page), 410 answers on the routes the old extension and phone app send files to, one dashboard
   notice per organization (fixed key `moved-to-auto-sort` and fixed text, so a dismissed one stays

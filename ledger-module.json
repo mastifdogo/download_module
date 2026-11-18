@@ -3,7 +3,7 @@
   "name": "Import",
   "version": "0.22.0",
   "description": "Import is now part of Auto sort. This last version takes nothing in: it moves the files Import kept into Ledger's Documents and shows how to bring them over to Auto sort (update Auto sort, then press \"Bring over Import's files\" there), after which Import can be removed.",
-  "ledger": ">=0.26.0",
+  "ledger": ">=0.27.0",
   "server": "server.mjs",
   "ui": "ui",
   "nav": {
